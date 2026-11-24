@@ -67,13 +67,15 @@ Searches nodes within a subtree using composable structural, semantic, and I/O p
 
 - **Params**:
   - `rootPath?`: `Path` (defaults to `"/"`)
-  - `kinds?`: `NodeKind[]` (`"ou" | "interface" | "channel" | "structure" | "content" | "input"`)
+  - `kinds?`: `NodeKind[]` (`"ou" | "interface" | "channel" | "structure" | "component" | "document" | "view" | "editable" | "control"`)
   - `types?`: `TypeTag[]` (matches `node.type`, optionally supporting trailing `.*` namespace prefix matching)
-  - `meta?`: `Array<{ key: Key, value?: Value }>` (if `value` is omitted, matches existence of `key`)
+  - `properties?`: `Array<{ key: Key, value?: Value }>` (matches declarative `node.properties`; if `value` is omitted, matches existence of `key`)
+  - `state?`: `Array<{ key: Key, value?: Value }>` (matches live `node.state`, e.g., `focused: true` or `valid: false`; if `value` is omitted, matches existence of `key`)
+  - `meta?`: `Array<{ key: Key, value?: Value }>` (matches auxiliary `node.meta`; if `value` is omitted, matches existence of `key`)
   - `hasMethod?`: `Name`
   - `direction?`: `"sense" | "act" | "duplex"` (filters `Channel` nodes by polarity)
-  - `mediaTypePrefix?`: `string` (matches `Channel`, `Content`, or `Input` `mediaType` prefix, e.g., `"video/"` or `"text/"`)
-  - `textContains?`: `string` (case-insensitive substring match against `aep.description`, `aep.altText`, inline text values, and string metadata)
+  - `mediaTypePrefix?`: `string` (matches `ChannelSpec.mediaType` or `properties.mediaType` prefix, e.g., `"video/"` or `"text/"`)
+  - `textContains?`: `string` (case-insensitive substring match against `properties.title`, `properties.label`, `properties.description`, `properties.altText`, inline string `state.value`, and string `meta` values)
   - `maxDepth?`: `number`
   - `cursor?`: `string`
   - `limit?`: `number`
@@ -100,6 +102,7 @@ Executes a server-advertised method attached to the node at `path`.
 - **Normative Rules**:
   - Servers MUST verify `MethodDecl.sideEffects` before execution. Unannotated custom methods MUST default to `"write"`.
   - If the active session has `role = "observer"` and the resolved method has `sideEffects = "write"`, the server MUST reject the call with `READ_ONLY_SESSION`.
+  - Standardized interactive primitive mutations execute through `node.invoke`: `ControlElement` actions use `invoke` (or domain-specific action methods), and `EditableElement` value changes use `setValue` (`params: { value }`) or `patchState` (`params: { state }`) alongside optional convenience methods (`toggle`, `replaceRange`, `clear`). Resulting changes to `state`, `properties`, or tree structure MUST propagate causally via `node.updated`, `node.added`, or `node.removed`.
 
 ---
 
@@ -121,7 +124,7 @@ Servers push asynchronous state transitions over the Control Plane without requi
 
 ### 5.1 Discrete Binary Resolution (`data.getBinary`)
 
-Resolves a `BinaryRef` (from a `ContentElement`, `aep.capture` metadata, or `node.invoke` response) with optional structured fetch parameters:
+Resolves a `BinaryRef` (from `state.binaryRef`, `properties.capture`, or a `node.invoke` response) with optional structured fetch parameters:
 
 - **Params**:
   - `refId`: `string` (MUST be treated strictly as an opaque reference handle; implementations MUST NOT pack query strings, crop coordinates, or options into `refId`)
@@ -187,7 +190,7 @@ All continuous sensory (`sense`), actuation (`act`), and bidirectional (`duplex`
 | `UNSUPPORTED_AUTH_MODE` | Security | Unrecognized or disallowed `security.mode` during `session.initialize`. |
 | `NODE_NOT_FOUND` | Addressing | Valid `Path` does not exist in `Body`. |
 | `INVALID_PATH` | Addressing | Syntactically invalid `Path` or disallowed root `"/"` target (e.g., on `node.get`). |
-| `INVALID_REFERENCE` | Data Plane | Malformed `BinaryRef` / `StreamRef` or invalid `ChannelRef` target. |
+| `INVALID_REFERENCE` | Data Plane | Malformed `BinaryRef` / `StreamRef` or invalid `state.channelRef` target. |
 | `BINARY_NOT_FOUND` | Data Plane | Referenced `BinaryRef.refId` does not exist or has expired. |
 | `CHANNEL_NOT_FOUND` | Data Plane | Referenced `Channel` `path`, `StreamRef.refId`, or `subscriptionId` does not exist. |
 | `DIRECTION_MISMATCH` | Data Plane | Operation incompatible with `ChannelSpec.direction` (e.g., `channel.send` on a `"sense"` channel). |

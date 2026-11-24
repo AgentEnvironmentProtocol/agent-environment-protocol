@@ -48,35 +48,53 @@ InterfaceChild   ::= Element | Interface | Channel ;
 (* --- Continuous / Seekable I/O Leaf --- *)
 Channel          ::= NodeHeader ChannelSpec ;     (* NodeKind MUST be "channel" *)
 
-(* --- Discrete & Structural Interface Elements --- *)
+(* --- Discrete, Structural, Composite & Document Interface Elements --- *)
 Element          ::= StructureElement
-                   | ContentElement
-                   | InputElement ;
+                   | ComponentElement
+                   | DocumentElement
+                   | ViewElement
+                   | EditableElement
+                   | ControlElement ;
 
 StructureElement ::= NodeHeader StructureChild* ; (* NodeKind MUST be "structure" *)
 StructureChild   ::= Element | Interface ;
 
-ContentElement   ::= NodeHeader ContentSpec Element* ; (* NodeKind MUST be "content" *)
-InputElement     ::= NodeHeader InputSpec Element* ;   (* NodeKind MUST be "input" *)
+ComponentElement ::= NodeHeader ComponentChild* ; (* NodeKind MUST be "component" *)
+ComponentChild   ::= Element | Interface | Channel ;
 
-(* --- Uniform Node Header (Shared by All Body Nodes) --- *)
+DocumentElement  ::= NodeHeader DocumentChild* ;  (* NodeKind MUST be "document" *)
+DocumentChild    ::= Element | Interface ;
+
+ViewElement      ::= NodeHeader Element* ;        (* NodeKind MUST be "view" *)
+EditableElement  ::= NodeHeader Element* ;        (* NodeKind MUST be "editable" *)
+ControlElement   ::= NodeHeader Element* ;        (* NodeKind MUST be "control" *)
+
+(* --- Uniform Node Header / Object Anatomy (Shared by All Body Nodes) --- *)
 NodeHeader       ::= NodeId
                      NodeKind
                      TypeTag?
-                     Meta*
+                     Property*
+                     State?
                      MethodDecl*
                      EventDecl*
+                     Meta*
                      LazyFlag? ;
 
 NodeKind         ::= "ou"
                    | "interface"
                    | "channel"
                    | "structure"
-                   | "content"
-                   | "input" ;
+                   | "component"
+                   | "document"
+                   | "view"
+                   | "editable"
+                   | "control" ;
 
 NodeId           ::= Segment ;
 TypeTag          ::= NamespacedIdent ;
+Property         ::= Key Value ;
+State            ::= StateField* BinaryRef? ChannelRef? ;
+StateField       ::= Key Value ;
 Meta             ::= Key Value ;
 
 MethodDecl       ::= Name
@@ -96,14 +114,10 @@ InvocationMode   ::= "request-response" | "notification" ;
 SideEffect       ::= "none" | "read" | "write" ;
 LazyFlag         ::= Boolean ;                    (* Wire field: hasChildren *)
 
-(* --- NodeKind-Specific Payloads & Descriptors --- *)
-ChannelSpec      ::= MediaType Direction DeliveryMode StreamRef? StreamMeta? ;
+(* --- NodeKind-Specific Descriptors --- *)
+ChannelSpec      ::= MediaType Direction DeliveryMode StreamRef? ;
 Direction        ::= "sense" | "act" | "duplex" ;
 DeliveryMode     ::= "stream" | "stream+seek" ;
-
-ContentSpec      ::= MediaType TemporalState (InlineValue | BinaryRef | ChannelRef)? ;
-InputSpec        ::= MediaType InputSchema? InlineValue? ChannelRef? ;
-TemporalState    ::= "static" | "dynamic" ;
 
 (* --- Data-Plane References --- *)
 BinaryRef        ::= RefId MediaType SizeBytes? Meta* ;
@@ -121,8 +135,6 @@ InputSchema      ::= SchemaObject ;
 OutputSchema     ::= SchemaObject ;
 PayloadSchema    ::= SchemaObject ;
 SchemaObject     ::= Object ;
-StreamMeta       ::= Meta* ;
-InlineValue      ::= Value ;
 SizeBytes        ::= NonNegInteger ;
 FrameRate        ::= NonNegNumber ;
 SampleRate       ::= NonNegNumber ;
@@ -158,7 +170,7 @@ PositiveInteger  ::= (* Integer >= 1 *) ;
 
 ## 3. Static & Semantic Well-Formedness Invariants
 
-Context-free productions alone do not express uniqueness, acyclicity, or reference integrity. A valid AEP tree MUST additionally satisfy all eight invariants below:
+Context-free productions alone do not express uniqueness, acyclicity, or reference integrity. A valid AEP tree MUST additionally satisfy all nine invariants below:
 
 ### Invariant 1 — Sibling `NodeId` Uniqueness & Canonical `Path`
 - Every direct child of `Body` MUST carry a distinct `NodeId` within `Body`.
@@ -170,14 +182,18 @@ Context-free productions alone do not express uniqueness, acyclicity, or referen
 - `Body` MUST form a strict directed tree with zero cycles.
 - No node MAY appear as an ancestor of itself—directly or across transparent passthrough mounts ([03 — Passthrough & Composition](./03-passthrough-and-composition.md)). Servers detecting cyclic mount graphs MUST reject or break the cycle with error code `MOUNT_CYCLE`.
 
-### Invariant 3 — `NodeKind`–Production Alignment & Disjoint Element Kinds
+### Invariant 3 — `NodeKind`–Production Alignment, Disjoint Kinds & Action/State Split
 - Every `NodeHeader` MUST match its structural production:
   - `OU` nodes MUST have `NodeKind = "ou"` and MAY contain only `OU`, `Interface`, or `Channel` children (never bare `Element`s).
   - `Interface` nodes MUST have `NodeKind = "interface"` and MAY contain `Element`, `Interface`, or `Channel` children (never `OU`s).
   - `StructureElement` nodes MUST have `NodeKind = "structure"` and MAY contain only `Element` or `Interface` children (never `OU`s or `Channel`s).
-  - `ContentElement` nodes MUST have `NodeKind = "content"` and MAY contain only `Element` children.
-  - `InputElement` nodes MUST have `NodeKind = "input"` and MAY contain only `Element` children.
-- Element kinds (`structure`, `content`, `input`) are strictly mutually exclusive per node.
+  - `ComponentElement` nodes MUST have `NodeKind = "component"` and MAY contain `Element`, `Interface`, or `Channel` children (never `OU`s). A `ComponentElement` MAY own and control direct child `Channel`s and bind them to descendant `ViewElement` or `EditableElement` nodes via `State.channelRef`.
+  - `DocumentElement` nodes MUST have `NodeKind = "document"` and MAY contain `Element` or `Interface` children (never `OU`s or `Channel`s).
+  - `ViewElement` nodes MUST have `NodeKind = "view"` and MAY contain only `Element` children (never `OU`s, `Interface`s, or `Channel`s). `ViewElement`s are read-only presentation primitives.
+  - `EditableElement` nodes MUST have `NodeKind = "editable"` and MAY contain only `Element` children (never `OU`s, `Interface`s, or `Channel`s). Every stateful input control whose state changes on interaction (such as text fields, checkboxes, switches, toggle buttons, selects, combo boxes, sliders, radio groups, and date/color fields) MUST use `NodeKind = "editable"`.
+  - `ControlElement` nodes MUST have `NodeKind = "control"` and MAY contain only `Element` children (never `OU`s, `Interface`s, or `Channel`s). `ControlElement`s are strictly stateless action/command triggers (such as buttons, icon buttons, menu items, and command links) and MUST NOT hold mutable input values in `State`.
+  - `Channel` nodes MUST have `NodeKind = "channel"` and MUST carry `ChannelSpec`.
+- All nine `NodeKind` values—and specifically the six `Element` kinds (`structure`, `component`, `document`, `view`, `editable`, `control`)—are strictly mutually exclusive per node.
 
 ### Invariant 4 — `Channel` Leaf Constraint & Agent-Centric Polarity
 - `Channel` nodes (`NodeKind = "channel"`) MUST be strict leaves: they MUST NOT carry child nodes and MUST NOT advertise `hasChildren = true`.
@@ -186,17 +202,22 @@ Context-free productions alone do not express uniqueness, acyclicity, or referen
   - `"act"`: continuous data flows from agent to environment.
   - `"duplex"`: bidirectional closed-loop flow between agent and environment.
 
-### Invariant 5 — Open `TypeTag` & `Meta` Extensibility
-- Core AEP implementations MUST accept any syntactically valid `NamespacedIdent` as `TypeTag` and any `Key Value` pair in `Meta` without rejecting unknown vocabularies.
-- Unrecognized `TypeTag`s and `Meta` keys MUST be preserved transparently across passthrough relays unless an explicit policy strips private internal keys.
+### Invariant 5 — Core Built-In `TypeTag`s & Open `Property` / `State` / `Meta` Extensibility
+- Single-segment un-namespaced `TypeTag`s (containing no `"."`) are reserved for Core AEP built-in surface, layout, document, and primitive types defined in [02 — Tree Nodes & Data Model](./02-tree-nodes.md) and [06 — Profiles, Sessions & Vocabularies](./06-profiles-sessions-and-vocabularies.md).
+- Core AEP implementations MUST accept any syntactically valid `NamespacedIdent` as `TypeTag` (including open namespaced types such as `prefix.name`) and any `Key Value` pair in `Property`, `State`, and `Meta` without rejecting unknown vocabularies.
+- Unrecognized `TypeTag`s and `Property` / `State` / `Meta` keys MUST be preserved transparently across passthrough relays unless an explicit policy strips private internal `Meta` keys.
 
 ### Invariant 6 — `ChannelRef` Resolution
-- Whenever a `ContentSpec` or `InputSpec` supplies a `ChannelRef`, that `Path` MUST resolve to a node whose `NodeKind` is `"channel"` within the active tree visible to the caller (after any passthrough path rewriting).
+- Whenever a node's `State` supplies a `ChannelRef`, that `Path` MUST resolve to a node whose `NodeKind` is `"channel"` within the active tree visible to the caller (after any passthrough path rewriting).
 
 ### Invariant 7 — Lazy Subtree Contract
-- A container node (`ou`, `interface`, `structure`, `content`, `input`) MAY set `LazyFlag` (`hasChildren = true`) while omitting some or all of its children in an initial projection.
+- Any container node (`ou`, `interface`, `structure`, `component`, `document`, `view`, `editable`, `control`) MAY set `LazyFlag` (`hasChildren = true`) while omitting some or all of its children in an initial projection.
 - Clients materialize omitted descendants on demand via `node.loadChildren` ([04 — Control & Data Planes](./04-control-and-data-planes.md)).
 - Setting `hasChildren = true` on a `Channel` node is invalid and MUST be rejected with `INVALID_MESSAGE`.
 
 ### Invariant 8 — Serialization Isomorphism
-- Primary binary serialization (Protocol Buffers or equivalent typed binary schema) and optional JSON serialization MUST represent all grammar productions, `NodeKind` values, `Path` segments, `Value` types, and Data-Plane references losslessly and deterministically.
+- Primary binary serialization (Protocol Buffers or equivalent typed binary schema) and optional JSON serialization MUST represent all grammar productions, `NodeKind` values, `Path` segments, `Property` / `State` / `Meta` entries, `Value` types, and Data-Plane references losslessly and deterministically.
+
+### Invariant 9 — Tabular `table` / `column` / `row` / `cell` Structural Integrity
+- A `StructureElement` with `type = "table"` MUST only materialize direct children of `kind = "structure"` with `type = "column"` or `type = "row"`.
+- A `StructureElement` with `type = "row"` MUST only materialize direct children of `kind = "structure"` with `type = "cell"`.

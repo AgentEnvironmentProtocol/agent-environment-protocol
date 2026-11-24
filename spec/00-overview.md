@@ -9,8 +9,8 @@ AEP adheres to five core design constraints:
 - **Language-Agnostic**: Protocol semantics, grammar productions, data models, and RPC contracts avoid bindings to any single programming language or runtime.
 - **Transport-Agnostic**: AEP governs the **Control Plane** and **Data Plane** while delegating transport, framing, encryption, and low-level networking mechanics to external transport protocols. See [05 — Transport & Interoperability](./05-transport-and-interop.md).
 - **Binary-First with Lossless JSON Equivalence**: Structured Control-Plane objects prefer compact binary serialization (such as Protocol Buffers) with lossless JSON representation for debugging and browser/text transports.
-- **Server-Side Authority (No Client Scripting)**: Environments are projected as server-owned semantic trees carrying declarative metadata and invokable methods. Clients MUST NOT execute embedded client-side scripts or mutate server state locally; all state transitions occur server-side and propagate over the Control Plane.
-- **Open Semantic Taxonomy**: Core AEP defines a minimal, strict structural grammar while keeping domain types (`TypeTag`) and node metadata (`Meta`) completely open-ended. Core parsers never break on new environment types or modalities.
+- **Server-Side Authority (No Client Scripting)**: Environments are projected as server-owned semantic trees of objects carrying declarative `properties`, live `state`, invokable `methods`, `events`, and optional auxiliary `meta`. Clients MUST NOT execute embedded client-side scripts or mutate server state locally; all state transitions occur server-side and propagate over the Control Plane.
+- **Open Semantic Taxonomy**: Core AEP defines a minimal, strict structural grammar alongside reserved core UI surface, layout, document, and primitive types while keeping domain types (`TypeTag`), node `properties`/`state`, and auxiliary `meta` completely open-ended. Core parsers never break on new environment types or modalities.
 
 ---
 
@@ -19,7 +19,7 @@ AEP adheres to five core design constraints:
 Traditional environment protocols force diverse targets into fixed, domain-specific hierarchies (such as assuming every environment is an operating system running windowed desktop processes). AEP replaces fixed semantic tiers with a **modular passthrough I/O tree**:
 
 - A **single AEP client** forms one unified client runtime that can connect to one or multiple AEP servers simultaneously.
-- Each connected provider projects a subtree of **Organizational Units (`OU`)**, **Interfaces (`Interface`)**, **Elements (`Element`)**, and **I/O Channels (`Channel`)** under `Body`, alongside session and capability metadata in `Head`.
+- Each connected provider projects a subtree of **Organizational Units (`OU`)**, **Surfaces (`Interface`)**, **Elements (`Element`: `structure`, `component`, `document`, `view`, `editable`, `control`)**, and **I/O Channels (`Channel`)** under `Body`, alongside session and capability metadata in `Head`.
 - Because every provider speaks the same recursive tree grammar, an AEP server or client can transparently mount subtrees from other AEP providers ([03 — Passthrough & Composition](./03-passthrough-and-composition.md))—assembling desktops, embedded terminals, browser iframes, microphones, depth cameras, and robotic actuators into one coherent **body of senses and actuation**.
 
 ---
@@ -62,11 +62,14 @@ Root
  ├── Head (Meta*)
  └── Body (OU | Interface | Channel)*
       ├── OU (NodeHeader + (OU | Interface | Channel)*)
-      ├── Interface (NodeHeader + (Element | Interface | Channel)*)
-      │    └── Element (structure | content | input)
-      │         ├── StructureElement ──▶ (Element | Interface)*
-      │         ├── ContentElement   ──▶ Element*
-      │         └── InputElement     ──▶ Element*
+      ├── Interface (NodeHeader + (Element | Interface | Channel)*)         [display, window, dialog, page]
+      │    └── Element (structure | component | document | view | editable | control)
+      │         ├── StructureElement ──▶ (Element | Interface)*               [form, section, stack, grid, table, column, row, cell]
+      │         ├── ComponentElement ──▶ (Element | Interface | Channel)*     [composite widgets owning channels]
+      │         ├── DocumentElement  ──▶ (Element | Interface)*               [rich flow text + embedded forms/editables]
+      │         ├── ViewElement      ──▶ Element*                             [read-only views]
+      │         ├── EditableElement  ──▶ Element*                             [stateful modifiable inputs]
+      │         └── ControlElement   ──▶ Element*                             [stateless action triggers]
       └── Channel (NodeHeader + ChannelSpec [sense | act | duplex])
 ```
 
@@ -78,7 +81,7 @@ See [01 — Formal Grammar](./01-formal-grammar.md) for the complete normative E
 
 ```mermaid
 flowchart TD
-    Agent["Agent Client (Unified Body of Senses)"] <-->|"Control Plane (Tree, Methods, Events, Refs)"| CP["AEP Control Plane"]
+    Agent["Agent Client (Unified Body of Senses)"] <-->|"Control Plane (Tree, Properties, State, Methods, Events, Refs)"| CP["AEP Control Plane"]
     Agent <-->|"Data Plane (Binaries and Sense/Act Channels)"| DP["AEP Data Plane"]
 
     CP --- Transport["Delegated Transport (QUIC, WebSocket, IPC)"]
@@ -88,15 +91,16 @@ flowchart TD
     Root --> Head["Head (Meta*)"]
     Root --> Body["Body"]
     Body --> OU["OU (Recursive Grouping or Mount)"]
-    Body --> Iface["Interface (Nestable Surface)"]
+    Body --> Iface["Interface (display, window, dialog, page)"]
     Body --> Chan["Channel (sense, act, or duplex)"]
     OU --> OU
     OU --> Iface
     OU --> Chan
-    Iface --> Elem["Element (structure, content, or input)"]
+    Iface --> Elem["Element (structure, component, document, view, editable, control)"]
     Iface --> Iface
     Iface --> Chan
-    Elem -->|"StructureElement slot"| Iface
+    Elem -->|"Structure or Document slot"| Iface
+    Elem -->|"Component owned stream"| Chan
     Elem -->|"Child elements"| Elem
 ```
 

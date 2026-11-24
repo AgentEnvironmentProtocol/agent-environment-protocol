@@ -13,7 +13,7 @@ Implementations MAY support a well-defined partial subset of AEP—such as non-s
 | Capability Field | Type / Values | Semantics |
 | --- | --- | --- |
 | `profile` | `string` (optional) | Named conformance profile (e.g., `"aep-core-static"`, `"aep-core-streaming"`). |
-| `nodeKinds` | Subset of `ou`, `interface`, `channel`, `structure`, `content`, `input` | Allowed `NodeKind`s in `Body`. |
+| `nodeKinds` | Subset of `ou`, `interface`, `channel`, `structure`, `component`, `document`, `view`, `editable`, `control` | Allowed `NodeKind`s in `Body`. |
 | `channelDirections` | Subset of `sense`, `act`, `duplex` | Allowed `ChannelSpec.direction` polarities. |
 | `deliveryModes` | Subset of `stream`, `stream+seek` | Allowed `ChannelSpec.deliveryMode` values. |
 | `queries` | `{ treeQuery?: boolean, loadChildren?: boolean }` | Support for `tree.query` and lazy `node.loadChildren`. |
@@ -37,15 +37,15 @@ Implementations MAY support a well-defined partial subset of AEP—such as non-s
 
 The **`aep-core-static`** profile targets lightweight request/response and event-driven environments (such as static/dynamic desktop or web UI projection) without continuous `Channel` streams:
 
-- **Enabled `NodeKind`s**: `ou`, `interface`, `structure`, `content`, `input` (`channel` is disabled).
-- **Data Plane**: Discrete `BinaryRef` resolution via `data.getBinary` (including parameterized `region` crops and opt-in `aep.capture` snapshots). `channel.*` stream operations fail with `UNSUPPORTED_CAPABILITY`.
-- **Passthrough**: Enabled for `ou`, `interface`, `structure`, `content`, and `input` subtrees.
+- **Enabled `NodeKind`s**: `ou`, `interface`, `structure`, `component`, `document`, `view`, `editable`, `control` (`channel` is disabled).
+- **Data Plane**: Discrete `BinaryRef` resolution via `data.getBinary` (including parameterized `region` crops and opt-in `properties.capture` snapshots). `channel.*` stream operations fail with `UNSUPPORTED_CAPABILITY`.
+- **Passthrough**: Enabled for `ou`, `interface`, `structure`, `component`, `document`, `view`, `editable`, and `control` subtrees.
 - **Security**: Supports `security.mode = "unauthenticated"` for local/development sessions.
 
 ```json
 {
   "profile": "aep-core-static",
-  "nodeKinds": ["ou", "interface", "structure", "content", "input"],
+  "nodeKinds": ["ou", "interface", "structure", "component", "document", "view", "editable", "control"],
   "channelDirections": [],
   "deliveryModes": [],
   "queries": {
@@ -70,12 +70,12 @@ The **`aep-core-static`** profile targets lightweight request/response and event
 
 ### 2.2 `aep-core-streaming`
 
-The **`aep-core-streaming`** profile enables the full AEP tree including continuous sensory and actuation `Channel`s, time-series `stream+seek`, random sampling, and multi-user observer fan-out:
+The **`aep-core-streaming`** profile enables the full AEP tree including continuous sensory and actuation `Channel`s (on `Body`, `OU`, `Interface`, or `ComponentElement`), time-series `stream+seek`, random sampling, and multi-user observer fan-out:
 
 ```json
 {
   "profile": "aep-core-streaming",
-  "nodeKinds": ["ou", "interface", "channel", "structure", "content", "input"],
+  "nodeKinds": ["ou", "interface", "channel", "structure", "component", "document", "view", "editable", "control"],
   "channelDirections": ["sense", "act", "duplex"],
   "deliveryModes": ["stream", "stream+seek"],
   "queries": {
@@ -135,45 +135,62 @@ To support local development, trusted in-memory tests, and incremental bring-up:
 
 ---
 
-## 5. Optional Open Domain Vocabularies
+## 5. Core Built-In Types & Optional Domain Vocabularies
 
-> **Non-Mandatory Conventions**: The vocabularies below are optional naming conventions built strictly on open `TypeTag` (`node.type`) and `Meta` (`node.meta`) primitives. They are NOT closed core grammar rules; core AEP implementations handle all `TypeTag`s uniformly.
+### 5.1 Core Built-In UI Types (Normative)
 
-### 5.1 Desktop Vocabulary (`aep.desktop.*`)
+Single-segment un-namespaced `TypeTag`s are reserved by Core AEP so every client and agent understands standard surfaces, layouts, document blocks, and primitives without needing domain-specific extensions:
+
+| `NodeKind` | Reserved Built-In `TypeTag`s |
+| --- | --- |
+| `interface` | `display`, `window`, `dialog`, `page` |
+| `structure` | `form`, `section`, `stack`, `grid`, `table`, `column`, `row`, `cell`, `paragraph`, `heading`, `list`, `listItem`, `blockquote`, `codeBlock` |
+| `view` | `text`, `span`, `label`, `badge`, `code`, `image`, `icon`, `videoSurface`, `audioOutput`, `canvas`, `progress` |
+| `editable` | `textField`, `textArea`, `numberField`, `passwordField`, `searchField`, `checkbox`, `switch`, `toggleButton`, `radioGroup`, `radio`, `select`, `comboBox`, `slider`, `rangeSlider`, `dateField`, `colorField`, `voiceInput` |
+| `control` | `button`, `iconButton`, `menuItem`, `link`, `command`, `toolbarButton` |
+
+> **Open Domain Conventions**: The domain vocabularies below (`aep.desktop.*`, `aep.web.*`, `aep.robotics.*`) are optional namespaced conventions built on `TypeTag` (`node.type`), `properties`, `state`, and `meta`. Core AEP implementations handle all valid `NamespacedIdent` `TypeTag`s uniformly.
+
+### 5.2 Desktop Vocabulary (`aep.desktop.*`)
 
 Models workstation, OS, application, windowing, and terminal environments inside `OU`, `Interface`, `Element`, and `Channel` nodes:
 
-- **Common `TypeTag`s**:
+- **Common `TypeTag`s** (used alongside Core built-ins such as `window`, `dialog`, `grid`, `stack`, `table`, `button`, `textField`, `checkbox`, `select`):
   - `OU`: `desktop.host`, `desktop.os`, `desktop.app`, `desktop.process`, `desktop.service`
-  - `Interface`: `desktop.screen`, `desktop.window`, `desktop.terminal`, `desktop.dialog`
-  - `StructureElement`: `desktop.panel`, `desktop.tabBar`, `desktop.tab`, `desktop.section`, `desktop.stack`, `desktop.table`, `desktop.row`, `desktop.column`, `desktop.list`, `desktop.keyval`
-  - `ContentElement` / `InputElement`: `desktop.label`, `desktop.textLog`, `desktop.image`, `desktop.textField`, `desktop.button`, `desktop.checkbox`, `desktop.select`, `desktop.commandInput`
-- **Metadata & Method Conventions**:
-  - `aep.bounds`: `{ x, y, width, height, coordSpace: "pixel" | "normalized" }`
-  - `aep.capture`: `{ binary: true, mediaType: "image/png", refId, regionSupported: true }` for opt-in screen/window/element snapshots via `data.getBinary({ refId, params: { region } })`.
-  - `desktop.hwnd`, `desktop.pid`, `desktop.title`, `desktop.processName`, `desktop.minimized`: Optional domain keys in `node.meta`.
-  - `table.query` (`sideEffects: "read"`): Standard server-side filtering, sorting, column projection, and pagination (`{ filters, sort, columns, offset, limit }`) attached to large `desktop.table` elements.
+  - `Interface`: `desktop.terminal`, `desktop.tray`, `desktop.panelWindow`
+  - `StructureElement`: `desktop.tabBar`, `desktop.tab`, `desktop.toolbar`, `desktop.keyval`
+  - `ComponentElement`: `desktop.fileTree`, `desktop.codeEditor`
+  - `ViewElement` / `EditableElement`: `desktop.textLog`, `desktop.commandInput`
+- **Property, State & Metadata Conventions**:
+  - `properties.bounds`: `{ x, y, width, height, coordSpace: "pixel" | "normalized" }`
+  - `properties.capture`: `{ binary: true, mediaType: "image/png", refId, regionSupported: true }` for opt-in screen/window/element snapshots via `data.getBinary({ refId, params: { region } })`.
+  - `properties.title`, `state.windowState` (`"normal" | "minimized" | "maximized" | "fullscreen"`), and `desktop.hwnd`, `desktop.pid`, `desktop.processName` in `node.meta`.
+  - `table.query` (`sideEffects: "read"`): Standard server-side filtering, sorting, column projection, and pagination (`{ filters, sort, columns, offset, limit }`) attached to large `table` elements.
 
-### 5.2 Web & Browser Vocabulary (`aep.web.*`)
+### 5.3 Web & Browser Vocabulary (`aep.web.*`)
 
 Models browser sessions, tabs, DOM semantics, and nested cross-origin frames:
 
-- **Common `TypeTag`s**: `web.browser`, `web.tab`, `web.page`, `web.iframe` (conventionally projected as a nested `Interface` inside a `StructureElement` or parent `Interface`), `web.article`, `web.header`, `web.paragraph`, `web.form`, `web.link`, `web.button`, `web.input`, `web.canvas`.
-- **Metadata Conventions**: `web.url`, `web.title`, `web.origin`, `web.role`, `web.focused`.
+- **Common `TypeTag`s** (used alongside Core built-ins such as `page`, `dialog`, `document`, `section`, `heading`, `paragraph`, `form`, `link`, `button`, `textField`, `checkbox`, `select`):
+  - `OU`: `web.browser`
+  - `Interface`: `web.tab`, `web.iframe` (conventionally projected as a nested `Interface` inside a `StructureElement`, `ComponentElement`, `DocumentElement`, or parent `Interface`)
+  - `StructureElement` / `ViewElement`: `web.article`, `web.nav`, `web.canvas`, `web.shadowRoot`
+- **Property, State & Metadata Conventions**: `properties.title`, `state.focused`, and `web.url`, `web.origin`, `web.role` in `node.meta`.
 
-### 5.3 Robotics & Embodied Senses Vocabulary (`aep.robotics.*`)
+### 5.4 Robotics & Embodied Senses Vocabulary (`aep.robotics.*`)
 
 Models physical and simulated robotic platforms as a unified body of sensory and actuation nodes:
 
 - **Common `TypeTag`s**:
   - `OU`: `robotics.body`, `robotics.head`, `robotics.limb`, `robotics.arm`, `robotics.base`
   - `Interface`: `robotics.statusHud`, `robotics.gripperControl`, `robotics.teleopPanel`
+  - `ComponentElement`: `robotics.armModule`, `robotics.sensorPod` (owning local `Channel`s plus status `ViewElement`s and emergency `ControlElement`s)
   - `Channel`: `robotics.camera`, `robotics.depth`, `robotics.lidar`, `robotics.mic`, `robotics.speaker`, `robotics.imu`, `robotics.joint`, `robotics.gripper`
 - **Channel Media & Polarity Conventions**:
   - Sensory feeds (`direction: "sense"`): `video/h264`, `image/png`, `audio/opus`, `application/x-depth`, `application/x-lidar`, `application/x-imu`, `application/x-joints`.
   - Actuation streams (`direction: "act"`): `audio/opus` (speech/audio output), `application/x-joints`, `application/x-twist` (velocity/pose setpoints).
   - Closed-loop control (`direction: "duplex"`): `application/x-gripper-servo` (high-rate torque/force feedback paired with position/force commands).
 - **Safety & Coordinate Metadata Conventions**:
-  - `robotics.frameId`: Coordinate transform frame (e.g., `"base_link"`, `"head_left_optical"`).
-  - `robotics.rateHz`: Nominal sensor/control loop frequency.
-  - `robotics.estop` (`MethodDecl` with `sideEffects: "write"`): Standard emergency-stop method attached to top-level `robotics.body` or subsystem `OU`s.
+  - `robotics.frameId`: Coordinate transform frame in `node.meta` (e.g., `"base_link"`, `"head_left_optical"`).
+  - `robotics.rateHz`: Nominal sensor/control loop frequency in `node.meta` or `node.properties`.
+  - `robotics.estop` (`MethodDecl` with `sideEffects: "write"`): Standard emergency-stop method attached to top-level `robotics.body` or subsystem `OU`s, and optionally triggered via a `control` `button`.

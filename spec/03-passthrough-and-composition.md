@@ -41,10 +41,11 @@ Mounting MUST preserve the normative containment rules defined in [01 — Formal
 | Mounted Downstream Root | Valid Parent Anchor Kinds | Notes |
 | --- | --- | --- |
 | `Body` (`(OU \| Interface \| Channel)*`) | `Body` (`/`), `OU` | Preserves arbitrary `OU`, `Interface`, and `Channel` top-level nodes cleanly. |
-| `Body` containing only `Interface \| Channel` | `Body` (`/`), `OU`, `Interface` | Allowed at an `Interface` anchor ONLY if the mounted `Body` projects zero `OU` children. |
+| `Body` containing only `Interface \| Channel` | `Body` (`/`), `OU`, `Interface`, `ComponentElement` | Allowed at an `Interface` or `ComponentElement` anchor ONLY if the mounted `Body` projects zero `OU` children. |
 | Single `OU` | `Body` (`/`), `OU` | `OU`s MUST NOT mount inside `Interface` or `Element`. |
-| Single `Interface` | `Body` (`/`), `OU`, `Interface`, `StructureElement` | Enables mounting embedded apps, terminals, or iframes directly inside a `StructureElement` slot. |
-| Single `Channel` | `Body` (`/`), `OU`, `Interface` | Enables mounting a standalone hardware sensor or actuator channel directly under an `OU` or `Interface`. |
+| Single `Interface` | `Body` (`/`), `OU`, `Interface`, `StructureElement`, `ComponentElement`, `DocumentElement` | Enables mounting embedded apps, terminals, dialogs, or browser pages directly inside layout, component, or document slots. |
+| Single `Element` | `Interface`, `StructureElement`, `ComponentElement`, `DocumentElement` | Enables mounting remote `ComponentElement`s, `DocumentElement`s, or primitive subtrees directly inside a surface or element container. |
+| Single `Channel` | `Body` (`/`), `OU`, `Interface`, `ComponentElement` | Enables mounting a standalone hardware sensor or actuator channel under an `OU`, `Interface`, or composite `ComponentElement`. |
 
 Mount registrations that violate containment rules MUST be rejected with `INVALID_MESSAGE` (or `UNSUPPORTED_CAPABILITY` if passthrough or the projected node kinds are disabled).
 
@@ -63,15 +64,15 @@ Let a downstream provider $P$ (or its subtree rooted at $S_P$) be mounted transp
 2. **Outbound Notifications**:
    - When $P$ emits `node.added`, `node.updated`, `node.removed`, or `node.event`, the mount host MUST prepend $A$ to `path` and `parentPath` before forwarding upstream.
    - Only notifications falling under the mounted subtree $S_P$ are forwarded upstream when mounting a subtree rather than $P$'s entire `Body`.
-3. **Internal Reference Rewriting (`ChannelRef`)**:
-   - If a mounted `ContentElement` or `InputElement` carries a `ChannelRef` pointing to path $C$ within $P$'s mounted subtree, the mount host MUST rewrite `channelRef` to $A + C$ when projecting upstream so the client can open or inspect the referenced `Channel` directly.
+3. **Internal Reference Rewriting (`state.channelRef`)**:
+   - If a mounted `ViewElement`, `EditableElement`, or `ComponentElement` carries a `state.channelRef` pointing to path $C$ within $P$'s mounted subtree (including a `Channel` owned by a mounted `ComponentElement`), the mount host MUST rewrite `state.channelRef` to $A + C$ when projecting upstream so the client can open or inspect the referenced `Channel` directly.
 
 ### 4.2 Data-Plane Reference Isolation (`refId` Mapping)
 
 Independent downstream providers MAY emit identical `refId` values (such as `"screen"`, `"cam-0"`, or `"frame-1"`). Therefore:
 
 - A mount host MUST isolate downstream `BinaryRef.refId` and `StreamRef.refId` handles across mounted providers—either by issuing upstream-unique mapped handles or by applying a reversible mount namespace prefix—so two providers never collide in the upstream Data Plane.
-- The mount host MUST apply this mapping consistently across `ContentSpec.binaryRef`, `ChannelSpec.streamRef`, `aep.capture.refId` metadata, `node.invoke` results returning Data-Plane references, and Data-Plane stream notifications (`channel.chunk`, `channel.closed`).
+- The mount host MUST apply this mapping consistently across `state.binaryRef`, `ChannelSpec.streamRef`, `properties.capture.refId`, `node.invoke` results returning Data-Plane references, and Data-Plane stream notifications (`channel.chunk`, `channel.closed`).
 - Upon receiving `data.getBinary`, `channel.open`, or `channel.sample` with an isolated `refId`, the mount host resolves the owning provider, restores $P$'s local `refId`, and forwards the Data-Plane operation.
 
 ### 4.3 `Head` Reconciliation & Capability Boundaries
@@ -112,10 +113,10 @@ flowchart TD
     RobotOU --> ArmOU["OU /robot/right-arm (Server Passthrough Mount)"]
     ArmOU --> Gripper["Interface /robot/right-arm/gripper"]
 
-    WorkOU --> IdeIface["Interface /workstation/ide"]
-    IdeIface --> Panel["Structure /workstation/ide/layout"]
+    WorkOU --> IdeIface["Interface /workstation/ide (window)"]
+    IdeIface --> Panel["Structure /workstation/ide/layout (grid)"]
     Panel --> TermSlot["Interface /workstation/ide/layout/term (Server Passthrough Mount)"]
-    Panel --> WebSlot["Interface /workstation/ide/layout/preview (Mounted Browser Tab)"]
+    Panel --> WebSlot["Interface /workstation/ide/layout/preview (Mounted Browser Page)"]
 ```
 
 ### Transparent Path & Reference Rewriting Sequence

@@ -25,7 +25,7 @@ Any transport binding carrying an AEP session MUST satisfy five guarantees:
 - **Control-Plane Stream(s)**: One or more reliable bidirectional QUIC streams carry serialized Control-Plane messages (`session.*`, `tree.*`, `node.*`, `head.updated`, and lightweight `BinaryRef` / `StreamRef` descriptors).
 - **Data-Plane Streams**: Independent unidirectional or bidirectional QUIC streams are opened per `data.getBinary` request or `channel.open` subscription.
   - `"sense"` streams map cleanly to server-initiated or client-opened unidirectional/bidirectional QUIC streams delivering raw binary chunks.
-  - `"act"` and `"duplex"` streams map to bidirectional QUIC streams (or QUIC unreliable datagrams when a channel's `meta` declares lossy low-latency telemetry such as high-rate motor setpoints).
+  - `"act"` and `"duplex"` streams map to bidirectional QUIC streams (or QUIC unreliable datagrams when a channel's `properties` or `meta` declares lossy low-latency telemetry such as high-rate motor setpoints).
 - **Zero Head-of-Line Blocking**: Packet loss in a high-bitrate camera or LiDAR channel does not stall `node.invoke` emergency-stop or UI interaction commands on the Control-Plane stream.
 
 ---
@@ -38,7 +38,7 @@ When low-latency real-time audio/video or peer-to-peer robotic teleoperation is 
    - The AEP Control Plane coordinates SDP/ICE signaling and associates each WebRTC media track or DataChannel with its corresponding `Channel` `Path` and `StreamRef.refId`.
 2. **Media Tracks & DataChannels**:
    - Real-time `audio/*` and `video/*` `Channel`s (`sense`, `act`, or `duplex`) flow over WebRTC RTP media tracks with adaptive bitrate and hardware codec negotiation.
-   - Non-media continuous streams (such as IMU telemetry, LiDAR point clouds, or high-frequency joint control loops) MAY flow over WebRTC DataChannels configured either reliably or partially reliably (`maxRetransmits: 0` / unordered) as advertised in `ChannelSpec.meta`.
+   - Non-media continuous streams (such as IMU telemetry, LiDAR point clouds, or high-frequency joint control loops) MAY flow over WebRTC DataChannels configured either reliably or partially reliably (`maxRetransmits: 0` / unordered) as advertised in the channel's `properties` or `meta`.
 3. **Authoritative Control & Seek**:
    - Pause, resume, seek/sample on `stream+seek` recordings, method invocations, and UI tree updates remain on the reliable AEP Control Plane.
 
@@ -66,7 +66,7 @@ Implementations MAY negotiate **JSON** encoding at the transport or session boun
 
 ### 5.3 Semantic Equivalence & Data-Plane Framing
 
-- **Lossless Mapping**: Binary and JSON representations MUST map losslessly to the exact same [01 — Formal Grammar](./01-formal-grammar.md) AST, preserving `NodeKind`, canonical `Path`, typed `Value`s in `Meta` and `InlineValue`, `MethodDecl.sideEffects`, and `DataPlaneReference` fields.
+- **Lossless Mapping**: Binary and JSON representations MUST map losslessly to the exact same [01 — Formal Grammar](./01-formal-grammar.md) AST, preserving `NodeKind`, canonical `Path`, typed `Value`s in `Property`, `State`, and `Meta`, `MethodDecl.sideEffects`, and `BinaryRef` / `StreamRef` / `ChannelRef` fields.
 - **Raw Binary Data Plane**: Whenever the transport provides native binary streams or binary frames (QUIC streams, WebRTC tracks/DataChannels, binary WebSocket frames, length-prefixed IPC pipes), `data.getBinary` payloads and `channel.chunk` / `channel.send` `data` fields MUST travel as raw bytes without base64 overhead.
 - **Text-Transport Fallback**: Only when multiplexed onto a text-only JSON channel (such as JSON-only WebSocket or newline-delimited JSON over `stdio`) MAY `data` fields encode raw bytes as base64 strings.
 
