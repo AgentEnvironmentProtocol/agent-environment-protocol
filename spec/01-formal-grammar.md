@@ -29,7 +29,7 @@ The grammar below uses an ISO/IEC 14977-style readable EBNF notation:
 
 ```ebnf
 (* ============================================================================
-   Agent Environment Protocol (AEP) — Core Tree Grammar (v1.0 Draft)
+   Agent Environment Protocol (AEP) — Core Tree Grammar (v1.0.0-beta.0)
    ============================================================================ *)
 
 (* --- Root & Top-Level Partitions --- *)

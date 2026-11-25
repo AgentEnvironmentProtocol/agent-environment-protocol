@@ -8,6 +8,17 @@ Related documents: [00 — Overview](./00-overview.md) | [01 — Formal Grammar]
 
 ## 1. Capability Negotiation & Partial Profiles
 
+### 1.1 Protocol Version Negotiation & Adaptation
+
+- **Version Identifier Syntax**: Every AEP `protocolVersion` string MUST conform to Semantic Versioning 2.0.0 (`MAJOR.MINOR.PATCH` with optional `-prerelease` and `+build` identifiers). This specification defines protocol version **`"1.0.0-beta.0"`**.
+- **Deterministic Selection Rules**:
+  1. **Exact / Adapter Match First**: Given client `supportedVersions` (ordered by client preference) and server `supportedVersions` (ordered by server preference, including any explicit version adapters registered on the server), the server MUST first select the earliest entry in `client.supportedVersions` that matches an entry in `server.supportedVersions`.
+  2. **Compatible SemVer Fallback (`MAJOR >= 1` Stable Releases)**: When neither candidate carries a `-prerelease` tag and both share the same `MAJOR` (`MAJOR >= 1`), peers with compatible-minor negotiation enabled MAY select the lower baseline version `MAJOR.min(MINOR_client, MINOR_server).PATCH` and gate newer minor capabilities through `Head["aep.capabilities"]`.
+  3. **Pre-Release Isolation (`0.x` and `-prerelease`)**: Pre-release versions (such as `"1.0.0-beta.0"` vs. `"1.0.0-beta.1"` or `"1.0.0-draft"`) MUST NOT implicitly match across distinct pre-release tags unless an implementation explicitly configures a version adapter or compatibility entry for that version.
+  4. **Rejection & Client Adaptation (`UNSUPPORTED_VERSION`)**: When no match exists, the server MUST reject `session.initialize` with `UNSUPPORTED_VERSION` and `error.data: { supportedVersions: string[] }`. Clients supporting multiple protocol versions or adapters MAY inspect `error.data.supportedVersions`, activate a compatible protocol version adapter, and retry `session.initialize`.
+
+### 1.2 Capability Negotiation
+
 Implementations MAY support a well-defined partial subset of AEP—such as non-streaming UI environments without `Channel`s—by declaring capabilities explicitly during `session.initialize` and exposing the negotiated result in `Head["aep.capabilities"]`:
 
 | Capability Field | Type / Values | Semantics |

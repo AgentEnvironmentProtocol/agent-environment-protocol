@@ -19,6 +19,8 @@ All Control-Plane messages map losslessly to one of four logical envelope varian
 
 Peers MUST correlate responses by `id` and preserve causal ordering of Control-Plane mutations and notifications within a session.
 
+Prior to `session.initialize` completing, `Request` envelopes carry the client's preferred version (`supportedVersions[0]`). Once `session.initialize` (or `session.resume`) selects a session `protocolVersion`, all subsequent `Request`, `Response`, and `Notification` envelopes on that session MUST carry the negotiated `protocolVersion`; peers receiving a post-handshake envelope with a mismatched `protocolVersion` MUST reject it with `UNSUPPORTED_VERSION`.
+
 ---
 
 ## 2. Session Lifecycle
@@ -28,12 +30,12 @@ MUST be the first Control-Plane request on a new session. Any other Control-Plan
 
 - **Params**:
   - `clientInfo`: `{ name, version }`
-  - `supportedVersions`: `string[]` (ordered list of supported AEP protocol versions)
+  - `supportedVersions`: `string[]` (non-empty ordered list of Semantic Versioning 2.0.0 AEP protocol versions in descending client preference order, e.g., `["1.0.0-beta.0"]`)
   - `capabilities`: `CapabilitiesObject` (client-requested profile and capabilities; see [06 — Profiles, Sessions & Vocabularies](./06-profiles-sessions-and-vocabularies.md))
   - `security`: `{ mode: AuthMode, token?: string, apiKey?: string, keyId?: string, reserved?: boolean }` (optional; defaults to transport-bound auth or `{ mode: "unauthenticated", reserved: true }` when permitted)
   - `session`: `{ role?: "controller" | "observer", allowDowngradeToObserver?: boolean }` (optional; defaults to `"controller"`)
 - **Result**:
-  - `protocolVersion`: `string` (selected common version, else `UNSUPPORTED_VERSION`)
+  - `protocolVersion`: `string` (selected common version per [06 — Profiles, Sessions & Vocabularies](./06-profiles-sessions-and-vocabularies.md#11-protocol-version-negotiation--adaptation); if no mutually supported version exists, the server MUST fail with `UNSUPPORTED_VERSION` and `error.data: { supportedVersions: string[], requestedVersions?: string[] }` listing the server's supported versions in server preference order so clients MAY adapt and retry `session.initialize`)
   - `serverInfo`: `{ name, version }`
   - `authRequired?`: `boolean` (`true` when two-step `"challenge-response"` requires `session.authenticate`)
   - `challenge?`: `{ challengeId: string, algorithm: string, nonce: string, channelBinding?: string, expiresAt: string }` (present when `authRequired = true`)
@@ -263,7 +265,7 @@ All continuous sensory (`sense`), actuation (`act`), and bidirectional (`duplex`
 | `INTERNAL_ERROR` | Server | Unexpected server or transport runtime error. |
 | `NOT_INITIALIZED` | Lifecycle | Request sent before `session.initialize` completed. |
 | `SESSION_EXPIRED` | Lifecycle | `sessionId` or `resumeToken` in `session.resume` is invalid or expired; client must re-initialize. |
-| `UNSUPPORTED_VERSION` | Lifecycle | No mutually supported `protocolVersion` during `session.initialize`. |
+| `UNSUPPORTED_VERSION` | Lifecycle | No mutually supported `protocolVersion` during `session.initialize` (`error.data: { supportedVersions }`), or post-handshake envelope `protocolVersion` mismatch. |
 | `UNSUPPORTED_CAPABILITY` | Profile | Operation, `NodeKind`, `Direction`, `DeliveryMode`, `PayloadMode`, `RenderMode`, or `seek` outside negotiated capabilities. |
 | `UNSUPPORTED_AUTH_MODE` | Security | Unrecognized or disallowed `security.mode` during `session.initialize` or `session.authenticate`. |
 | `AUTHENTICATION_REQUIRED` | Security | Unauthenticated session attempted a protected operation or pending `"challenge-response"` auth was not completed. |

@@ -15,7 +15,7 @@ Related documents: [01 — Formal Grammar](./01-formal-grammar.md) | [02 — Tre
 ```text
 Root
  ├── head:
- │    ├── aep.protocolVersion: "1.0.0-draft"
+ │    ├── aep.protocolVersion: "1.0.0-beta.0"
  │    ├── aep.profiles: ["aep-core-streaming"]
  │    └── aep.vocabularies: ["aep.desktop", "aep.web"]
  └── body
@@ -70,7 +70,7 @@ sequenceDiagram
 ```text
 Root
  ├── head:
- │    ├── aep.protocolVersion: "1.0.0-draft"
+ │    ├── aep.protocolVersion: "1.0.0-beta.0"
  │    ├── aep.profiles: ["aep-core-streaming"]
  │    └── aep.vocabularies: ["aep.robotics", "aep.desktop"]
  └── body
@@ -173,7 +173,7 @@ sequenceDiagram
 ```text
 Root
  ├── head:
- │    ├── aep.protocolVersion: "1.0.0-draft"
+ │    ├── aep.protocolVersion: "1.0.0-beta.0"
  │    └── aep.profiles: ["aep-core-streaming"]
  └── body
       └── interface#training-win [type="window", properties={title:"Operator Training Module"}, state={windowState:"normal", focused:true}]
@@ -248,7 +248,7 @@ sequenceDiagram
 ```text
 Root
  ├── head:
- │    ├── aep.protocolVersion: "1.0.0-draft"
+ │    ├── aep.protocolVersion: "1.0.0-beta.0"
  │    ├── aep.profiles: ["aep-core-streaming"]
  │    ├── aep.vocabularies: ["aep.desktop", "aep.api"]
  │    └── aep.security: {mode: "bearer", principal: {id: "agent-ops-1"}, sessionAuthenticated: true}
@@ -319,7 +319,7 @@ sequenceDiagram
 ```text
 Root
  ├── head:
- │    ├── aep.protocolVersion: "1.0.0-draft"
+ │    ├── aep.protocolVersion: "1.0.0-beta.0"
  │    ├── aep.profiles: ["aep-core-streaming"]
  │    └── aep.capabilities.sessions: {policy: "multi-controller", leases: true, optimisticConcurrency: true}
  └── body

@@ -19,7 +19,7 @@ Every AEP projection is rooted at a single `Root` object containing two distinct
 
 | Key | Value Shape | Semantics |
 | --- | --- | --- |
-| `aep.protocolVersion` | `string` | Active negotiated protocol version (e.g., `"1.0.0-draft"`). |
+| `aep.protocolVersion` | `string` | Active negotiated protocol version (e.g., `"1.0.0-beta.0"`). |
 | `aep.serverInfo` | `{ name, version, description? }` | Provider identity and build version. |
 | `aep.capabilities` | `CapabilitiesObject` | Negotiated profile, node kinds, channel directions, payload/delivery modes, rendering modes, query flags, passthrough, and Data-Plane capabilities. See [06 — Profiles, Sessions & Vocabularies](./06-profiles-sessions-and-vocabularies.md). |
 | `aep.profiles` | `string[]` | Active conformance profile identifiers (e.g., `["aep-core-streaming"]`). |
