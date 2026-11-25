@@ -2,7 +2,7 @@
 
 This document specifies the normative semantics, unified object anatomy (`properties`, `state`, `methods`, `events`, `meta`), core built-in types, and Data-Plane references for every node in the **Agent Environment Protocol (AEP)** tree defined in [01 — Formal Grammar](./01-formal-grammar.md).
 
-Related documents: [00 — Overview](./00-overview.md) | [01 — Formal Grammar](./01-formal-grammar.md) | [03 — Passthrough & Composition](./03-passthrough-and-composition.md) | [04 — Control & Data Planes](./04-control-and-data-planes.md) | [06 — Profiles, Sessions & Vocabularies](./06-profiles-sessions-and-vocabularies.md)
+Related documents: [00 — Overview](./00-overview.md) | [01 — Formal Grammar](./01-formal-grammar.md) | [03 — Passthrough & Composition](./03-passthrough-and-composition.md) | [04 — Control & Data Planes](./04-control-and-data-planes.md) | [06 — Profiles, Sessions & Vocabularies](./06-profiles-sessions-and-vocabularies.md) | [08 — Security, Authentication & Privilege Elevation](./08-security-and-elevation.md) | [09 — Configuration & Passthrough Mount Manifests](./09-configuration.md)
 
 ---
 
@@ -10,8 +10,8 @@ Related documents: [00 — Overview](./00-overview.md) | [01 — Formal Grammar]
 
 Every AEP projection is rooted at a single `Root` object containing two distinct partitions:
 
-- **`Head` (`Meta*`)**: Session-wide metadata describing the protocol version, server identity, negotiated capabilities, active domain vocabularies, session role/concurrency state, security mode, and clock synchronization metadata.
-- **`Body` (`(OU | Interface | Channel)*`)**: The live navigable I/O tree composed of Organizational Units, Interfaces, Elements (`structure`, `component`, `document`, `view`, `editable`, `control`), and Channels.
+- **`Head` (`Meta*`)**: Session-wide metadata describing the protocol version, server identity, negotiated capabilities, active domain vocabularies, session role/concurrency state, security/authentication state, and clock synchronization metadata.
+- **`Body` (`(OU | Interface | Api | Channel)*`)**: The live navigable I/O tree composed of Organizational Units, Interfaces, Headless APIs (`Api`, `Endpoint`), Elements (`structure`, `component`, `document`, `view`, `editable`, `control`), and Channels.
 
 ### Standard Reserved `Head` Keys
 
@@ -21,11 +21,11 @@ Every AEP projection is rooted at a single `Root` object containing two distinct
 | --- | --- | --- |
 | `aep.protocolVersion` | `string` | Active negotiated protocol version (e.g., `"1.0.0-draft"`). |
 | `aep.serverInfo` | `{ name, version, description? }` | Provider identity and build version. |
-| `aep.capabilities` | `CapabilitiesObject` | Negotiated profile, node kinds, channel directions, delivery modes, query flags, passthrough, and Data-Plane capabilities. See [06 — Profiles, Sessions & Vocabularies](./06-profiles-sessions-and-vocabularies.md). |
+| `aep.capabilities` | `CapabilitiesObject` | Negotiated profile, node kinds, channel directions, payload/delivery modes, rendering modes, query flags, passthrough, and Data-Plane capabilities. See [06 — Profiles, Sessions & Vocabularies](./06-profiles-sessions-and-vocabularies.md). |
 | `aep.profiles` | `string[]` | Active conformance profile identifiers (e.g., `["aep-core-streaming"]`). |
-| `aep.vocabularies` | `string[]` | Optional domain vocabulary namespaces projected in `Body` (e.g., `["aep.desktop", "aep.robotics"]`). |
+| `aep.vocabularies` | `string[]` | Optional domain vocabulary namespaces projected in `Body` (e.g., `["aep.desktop", "aep.robotics", "aep.api"]`). |
 | `aep.session` | `{ sessionId, role, policy }` | Active session role (`"controller" \| "observer"`) and concurrency policy. |
-| `aep.security` | `{ mode, reserved? }` | Active security mode declared for the session (`"unauthenticated"` in local/dev reservations, or transport-bound auth descriptor). |
+| `aep.security` | `{ mode, principal?, sessionAuthenticated?, elevation?, reserved? }` | Active transport/app authentication mode, verified principal/scopes, and active elevation grant summary. See [08 — Security](./08-security-and-elevation.md). |
 | `aep.clock` | `{ nowMs?, monotonicMs?, epoch?, timeZone? }` | Optional server clock metadata for aligning event timestamps and `stream+seek` offsets. |
 
 Servers MAY emit additional custom namespaced keys in `Head` (for example, `vendor.buildId`). Updates to `Head` push via `head.updated` ([04 — Control & Data Planes](./04-control-and-data-planes.md)).
@@ -46,13 +46,15 @@ Canonical `Path` addressing replaces fixed multi-tier address objects: whether a
 
 ## 3. Uniform `NodeHeader` & The Node Object Model
 
-Drawing inspiration from XAML's object-and-dependency-property architecture, every node in `Body` (`ou`, `interface`, `channel`, `structure`, `component`, `document`, `view`, `editable`, `control`) acts as a uniform **object** exposing declarative `properties`, live runtime `state`, invokable `methods`, asynchronous `events`, optional auxiliary `meta`, and (for containers) child nodes or owned `Channel`s:
+Drawing inspiration from XAML's object-and-dependency-property architecture, every node in `Body` (`ou`, `interface`, `api`, `endpoint`, `channel`, `structure`, `component`, `document`, `view`, `editable`, `control`) acts as a uniform **object** exposing declarative `properties`, live runtime `state`, invokable `methods`, asynchronous `events`, optional auxiliary `meta`, and (for containers) child nodes or owned `Channel`s:
 
 | Field | Grammar Symbol | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `NodeId` | Yes | Unique identifier within the parent scope (`Segment`). |
-| `kind` | `NodeKind` | Yes | Discriminant: `"ou"`, `"interface"`, `"channel"`, `"structure"`, `"component"`, `"document"`, `"view"`, `"editable"`, or `"control"`. |
-| `type` | `TypeTag` | No | Built-in single-segment core type (e.g., `"window"`, `"grid"`, `"button"`, `"textField"`) or open `NamespacedIdent` (e.g., `"media.videoPlayer"`, `"robotics.camera"`). |
+| `uid` | `NodeUid` | No | Optional tree-unique logical identifier surviving `node.moved` path relocations and mount rebalancing. |
+| `kind` | `NodeKind` | Yes | Discriminant: `"ou"`, `"interface"`, `"api"`, `"endpoint"`, `"channel"`, `"structure"`, `"component"`, `"document"`, `"view"`, `"editable"`, or `"control"`. |
+| `type` | `TypeTag` | No | Built-in single-segment core type (e.g., `"window"`, `"service"`, `"resource"`, `"grid"`, `"button"`, `"textField"`) or open `NamespacedIdent` (e.g., `"media.videoPlayer"`, `"robotics.camera"`). |
+| `revision` | `Revision` | No | Optional monotonically increasing integer incremented on `state` or `properties` mutations for optimistic concurrency (`expectedRevision`). |
 | `properties` | `Property*` | No | Open `Key -> Value` map carrying declarative configuration, layout hints, validation schemas, and capability descriptors. |
 | `state` | `State` | No | Live runtime state, mutable values, and typed Data-Plane bindings (`binaryRef`, `channelRef`). |
 | `methods` | `MethodDecl[]` | No | Server-advertised invokable methods attached directly to this node. |
@@ -70,8 +72,11 @@ Core AEP standardizes common configuration, layout, schema, and capability keys 
 | `label` | `string` | `Control`, `Editable`, `View` | Short UI label associated with a primitive control or field. |
 | `description` | `string` | Any node | Natural-language description of role, constraints, or expected semantics. |
 | `altText` | `string` | `View`, `Editable`, `Control`, `Channel` | Alternative text for visual, audio, or sensor nodes. |
-| `bounds` | `{ x, y, width, height, coordSpace? }` | Spatial nodes | Optional bounding rectangle (`width >= 0`, `height >= 0`). `coordSpace` SHOULD be `"pixel"` or `"normalized"` (or a domain coordinate frame). |
-| `capture` | `{ binary: boolean, mediaType?: string, refId?: string, regionSupported?: boolean }` | Any visual node | Opt-in discrete snapshot capability (e.g., window or element capture) resolved via `data.getBinary` without injecting synthetic child nodes. |
+| `bounds` | `{ x, y, width, height, coordSpace? }` | Spatial nodes (`Interface`, `Element`) | Optional bounding rectangle (`width >= 0`, `height >= 0`). `coordSpace` SHOULD be `"pixel"` or `"normalized"` (or a domain coordinate frame). MUST NOT be set on `Api` or `Endpoint`. |
+| `capture` | `{ binary: boolean, mediaType?: string, refId?: string, regionSupported?: boolean, modes?: RenderMode[] }` | Any visual node (`Interface`, `Element`) | Opt-in discrete snapshot capability (e.g., window or element capture) resolved via `data.getBinary` or `data.render` (`"renderMinimal" \| "renderExpress" \| "renderFull"`). MUST NOT be set on `Api` or `Endpoint`. |
+| `version` | `string` | `Api`, `Endpoint`, `OU` | Optional semantic service or contract version (e.g., `"v2"`, `"2026-10-01"`). |
+| `rateLimit` | `{ requestsPerSecond?: number, burst?: number }` | `Api`, `Endpoint`, `Channel` | Optional advisory rate limit metadata for client pacing. |
+| `elevation` | `ElevationSpec` | Any node | Declarative step-up security elevation requirement inherited by descendants unless overridden ([08 — Security](./08-security-and-elevation.md#5-privilege-elevation--agent-elevation-instructions)). |
 | `disabled` | `boolean` | `Element`, `Interface`, `Channel` | Indicates the node is present in the environment but currently inactive. |
 | `readonly` | `boolean` | `Editable`, `Document` | Indicates the editable field or document currently rejects modification. |
 | `required` | `boolean` | `Editable` | Indicates a value is required prior to `form` submission. |
@@ -106,6 +111,7 @@ Core AEP standardizes common configuration, layout, schema, and capability keys 
 | `playbackState` | `"idle" \| "playing" \| "paused" \| "buffering" \| "ended" \| "error"` | `Component` (media players) | Current continuous media playback state. |
 | `positionMs` | `NonNegNumber` | `Component`, `View` | Current timeline position in milliseconds. |
 | `selection` | `{ start, end, anchorPath?, focusPath? }` | `Editable`, `Document` | Active caret or range selection inside text fields or rich documents. |
+| `status` | `"healthy" \| "degraded" \| "unavailable" \| "rate-limited"` | `Api`, `Endpoint`, `OU` | Optional operational availability status of a service or endpoint. |
 
 > **Separation of `properties`, `state`, and `meta`**: Put structural/declarative configuration in `properties`, live changing data and Data-Plane bindings in `state`, and platform/diagnostic/vendor handles (such as `desktop.hwnd`, `desktop.pid`, `robotics.frameId`, `vendor.buildTag`) in `meta`. Core AEP allows open namespaced keys in all three maps.
 
@@ -121,6 +127,7 @@ Any node in `Body`—an `OU`, `Interface`, `Element`, or `Channel`—MAY expose 
 | `outputSchema` | `SchemaObject` | No | Structured result schema. |
 | `mode` | `"request-response" \| "notification"` | No | Invocation pattern (defaults to `"request-response"`). |
 | `sideEffects` | `"none" \| "read" \| "write"` | Recommended | Effect classification used by `observer` session enforcement and coordinators. Unannotated methods MUST default to `"write"`. |
+| `elevation` | `ElevationSpec` | No | Optional step-up security requirement (`{ level, scopes?, allowedFactors?, requireReason? }`). See [08 — Security](./08-security-and-elevation.md). |
 | `meta` | `Meta*` | No | Optional method-level annotations. |
 
 ### `EventDecl` Contract
@@ -140,11 +147,11 @@ Nodes MAY declare asynchronous event descriptors via `events`:
 
 ### 4.1 Organizational Unit (`OU`, `kind = "ou"`)
 
-An **`OU`** is a recursive structural and organizational container holding zero or more `OU`, `Interface`, or `Channel` children (`OUChild ::= OU | Interface | Channel`).
+An **`OU`** is a recursive structural and organizational container holding zero or more `OU`, `Interface`, `Api`, or `Channel` children (`OUChild ::= OU | Interface | Api | Channel`).
 
 - **Purpose**: Groups subsystems, hosts, operating environments, apps, services, physical robot limbs, cloud sandboxes, or passthrough mount points without imposing fixed tier names.
-- **Methods & Channels**: An `OU` can carry methods (e.g., `spawn`, `launch`, `reboot`, `estop`) and direct `Channel` attachments (e.g., system audio, joint telemetry, or stdout logs).
-- **Nesting**: `OU`s nest arbitrarily inside other `OU`s. `OU`s MUST NOT appear inside an `Interface` or `Element`.
+- **Methods & Channels**: An `OU` can carry methods (e.g., `spawn`, `launch`, `reboot`, `estop`) and direct `Channel` attachments (e.g., system audio, joint telemetry, event buses, or stdout logs).
+- **Nesting**: `OU`s nest arbitrarily inside other `OU`s. `OU`s MUST NOT appear inside an `Interface`, `Api`, `Endpoint`, or `Element`.
 
 ### 4.2 Surfaces (`Interface`, `kind = "interface"`)
 
@@ -164,7 +171,47 @@ An **`Interface`** is an interactive or declarative projection surface holding z
 
 Domain vocabularies MAY define additional namespaced `Interface` types (such as `desktop.terminal`, `web.iframe`, or `robotics.statusHud`).
 
-### 4.3 Structural & Layout Containers (`StructureElement`, `kind = "structure"`)
+### 4.3 Headless APIs (`Api`, `kind = "api"`)
+
+An **`Api`** (`kind = "api"`) represents a **non-visual, non-physical programmatic service or API surface** (`ApiChild ::= Endpoint | Api | Channel`) mounted under `Body`, an `OU`, or a parent `Api`:
+
+- **No Visual Geometry**: Because an `Api` has no visual or physical presentation, it MUST NOT contain `Interface` or `Element` children and MUST NOT set `properties.bounds` or `properties.capture`.
+- **Service Metadata**: An `Api` carries service-level `properties` (such as `title`, `description`, `version`, `rateLimit`, `elevation`), live operational `state.status`, service-wide `methods` (e.g., `healthCheck`), `events`, and nested `Api` or `Endpoint` routes alongside shared service `Channel`s (such as an event bus or audit stream).
+
+#### Normative Core `Api` `TypeTag`s
+
+| `type` | Semantics | Typical `properties` / `state` / `methods` |
+| --- | --- | --- |
+| `service` | General programmatic service or domain subsystem. | `properties`: `title`, `version`, `elevation`; `state`: `status`; `methods`: `health`. |
+| `rest` | Resource-oriented API tree (HTTP/REST-like resource hierarchy). | `properties`: `version`, `rateLimit`; `meta`: `api.basePath`. |
+| `rpc` | Procedure-oriented API namespace (gRPC/JSON-RPC/tool collection). | `properties`: `title`, `version`; child `Endpoint`s (`operation`). |
+| `graphql` | Graph query/mutation/subscription endpoint root. | `methods`: `query`, `mutate`, `introspect`; optional `Channel` for subscriptions. |
+| `webhook` | Inbound/outbound asynchronous webhook or event subscription hub. | `events`: delivery callbacks; child `Channel` (`payloadMode = "event"`). |
+| `toolset` | Curated group of programmatic agent tools without UI surfaces. | `properties`: `title`, `description`; child `Endpoint`s (`operation`). |
+
+### 4.4 Programmatic Endpoints (`Endpoint`, `kind = "endpoint"`)
+
+An **`Endpoint`** (`kind = "endpoint"`) models an addressable programmatic route, resource, collection, or operation inside an `Api` or parent `Endpoint` (`EndpointChild ::= Endpoint | Channel`):
+
+- **Hierarchical Composition**: Endpoints nest arbitrarily to express nested resources or sub-operations (for example, `/services/billing/customers/cust-12/invoices/inv-42`) without introducing visual layout containers.
+- **No Visual Geometry**: Like `Api`, an `Endpoint` MUST NOT contain `Interface` or `Element` children and MUST NOT set `properties.bounds` or `properties.capture`.
+- **Uniform Interaction Surface**:
+  - **Actions & Queries (`methods`)**: Discrete operations execute via `node.invoke` using `MethodDecl` (`inputSchema`, `outputSchema`, `sideEffects`, optional `elevation`).
+  - **Async Callbacks (`events`)**: Point notifications emit via `node.event`.
+  - **Cached/Observable State (`state.value`)**: Read-only or observable resource snapshots MAY be projected directly in `state.value` and updated via `node.updated`.
+  - **Streaming & Event Feeds (`Channel`)**: Server-sent events, webhook deliveries, log tails, or bidirectional RPC streams attach directly as child `Channel` nodes (`payloadMode = "event"` or `"binary"`).
+
+#### Normative Core `Endpoint` `TypeTag`s
+
+| `type` | Semantics | Typical `methods` / `events` / `Channel`s |
+| --- | --- | --- |
+| `resource` | Single addressable entity or state object. | `methods`: `get` (`read`), `update` (`write`), `delete` (`write`); `state.value`. |
+| `collection` | Queryable set of resources (often paired with `hasChildren = true`). | `methods`: `list` (`read`), `query` (`read`), `create` (`write`); lazy child `Endpoint`s. |
+| `operation` | Stateless or parameterized procedure/RPC endpoint. | `methods`: `execute` (or domain method name) with `inputSchema`/`outputSchema`. |
+| `streamEndpoint` | Endpoint primarily exposing one or more continuous or event `Channel`s. | Child `Channel`s (`sense`, `act`, or `duplex`), lifecycle `methods`. |
+| `webhookEndpoint` | Addressable callback registration or event sink/source route. | Child `Channel` (`payloadMode = "event"`), `methods`: `subscribe`, `unsubscribe`. |
+
+### 4.5 Structural & Layout Containers (`StructureElement`, `kind = "structure"`)
 
 A **`StructureElement`** organizes layout, grouping, forms, and tabular hierarchy (`StructureChild ::= Element | Interface`) without acting as a primitive view, input, action trigger, or composite black-box component.
 
@@ -185,7 +232,7 @@ A **`StructureElement`** organizes layout, grouping, forms, and tabular hierarch
 
 When representing structured rich prose inside a `DocumentElement` (or semantic sections), `StructureElement` additionally reserves: `paragraph`, `heading` (with optional `properties.level`), `list`, `listItem`, `blockquote`, and `codeBlock`.
 
-### 4.4 Composite Components (`ComponentElement`, `kind = "component"`)
+### 4.6 Composite Components (`ComponentElement`, `kind = "component"`)
 
 A **`ComponentElement`** (`kind = "component"`) models a XAML-inspired **composite control/widget** built out of standard AEP primitives (`structure`, `view`, `editable`, `control`, `document`, nested `component`s, or slotted `interface`s) alongside optional **owned `Channel`s** (`ComponentChild ::= Element | Interface | Channel`):
 
@@ -198,7 +245,7 @@ For example, a `media.videoPlayer` component cleanly composes:
 - `view#viewport` (`type = "videoSurface"`) whose `state.channelRef` points to the owned `channel#video`
 - `structure#controls` (`type = "stack"`, `properties.orientation = "horizontal"`) holding `control#play-pause` (`type = "button"`), `editable#scrub` (`type = "slider"`), `editable#mute` (`type = "checkbox"`), and `view#timecode` (`type = "text"`)
 
-### 4.5 Rich Documents (`DocumentElement`, `kind = "document"`)
+### 4.7 Rich Documents (`DocumentElement`, `kind = "document"`)
 
 A **`DocumentElement`** (`kind = "document"`) models a XAML `FlowDocument`-inspired rich text and interactive document tree (`DocumentChild ::= Element | Interface`):
 
@@ -207,7 +254,7 @@ A **`DocumentElement`** (`kind = "document"`) models a XAML `FlowDocument`-inspi
   - When `properties.editable` is `false` (or omitted), the document acts as a rich viewer (comparable to `FlowDocumentReader` or a web/PDF document). Embedded `form`, `editable`, and `control` descendants inside the document remain independently actionable and fillable unless disabled/readonly.
   - When `properties.editable` is `true`, the document itself acts as a rich-text editor (comparable to `RichTextBox`), exposing selection state (`state.selection`), dirty tracking (`state.dirty`), and document editing methods (such as `replaceRange`, `insertBlock`, `deleteRange`, `setSelection`).
 
-### 4.6 Presentation Views (`ViewElement`, `kind = "view"`)
+### 4.8 Presentation Views (`ViewElement`, `kind = "view"`)
 
 A **`ViewElement`** (`kind = "view"`) is a **read-only presentation primitive** (`ViewElement ::= NodeHeader Element*`) with zero or more optional decorator/annotation child `Element`s (e.g., badges, tooltips, captions):
 
@@ -219,7 +266,7 @@ A **`ViewElement`** (`kind = "view"`) is a **read-only presentation primitive** 
     - `state.binaryRef` (`BinaryRef`): Reference to a discrete binary blob resolved via `data.getBinary`.
     - `state.channelRef` (`ChannelRef`): `Path` referencing a `Channel` node rendered by this view (e.g., a camera feed or `videoPlayer` viewport).
 
-### 4.7 Stateful Inputs (`EditableElement`, `kind = "editable"`)
+### 4.9 Stateful Inputs (`EditableElement`, `kind = "editable"`)
 
 An **`EditableElement`** (`kind = "editable"`) is a **stateful modifiable input primitive** (`EditableElement ::= NodeHeader Element*`) whose `state` changes upon user or agent interaction:
 
@@ -230,7 +277,7 @@ An **`EditableElement`** (`kind = "editable"`) is a **stateful modifiable input 
   - `state.channelRef` (optional): `Path` referencing an `act` or `duplex` `Channel` for continuous input controls (e.g., live microphone dictation or continuous controller axis streaming).
 - **Standardized Mutations**: State transitions execute server-side via `node.invoke` using standardized `MethodDecl`s—primarily `setValue` (`params: { value }`, `sideEffects: "write"`) and optional `patchState` (`params: { state }`, `sideEffects: "write"`), plus optional convenience methods such as `toggle`, `replaceRange`, or `clear`—and push back to clients via `node.updated`.
 
-### 4.8 Action Triggers (`ControlElement`, `kind = "control"`)
+### 4.10 Action Triggers (`ControlElement`, `kind = "control"`)
 
 A **`ControlElement`** (`kind = "control"`) is a **stateless action/command trigger primitive** (`ControlElement ::= NodeHeader Element*`) that strictly fires an operation without owning mutable input state:
 
@@ -238,20 +285,34 @@ A **`ControlElement`** (`kind = "control"`) is a **stateless action/command trig
 - **Strict Statelessness**: A `ControlElement` MUST NOT hold editable input values (`state.value`) and MUST NOT be used for toggles, checkboxes, sliders, or selectors (those belong to `EditableElement`).
 - **Execution**: Triggered via `node.invoke` using the standardized `invoke` method (or attached domain `MethodDecl`s). Methods that mutate environment state MUST carry `sideEffects: "write"` (default), while pure navigation/read-only commands MAY declare `sideEffects: "read"` or `"none"`.
 
-### 4.9 I/O Channel (`Channel`, `kind = "channel"`)
+### 4.11 I/O Channel (`Channel`, `kind = "channel"`)
 
-A **`Channel`** is a strict leaf node representing a continuous or time-series I/O endpoint (`ChannelSpec`), attachable directly under `Body`, `OU`, `Interface`, or `Component`:
+A **`Channel`** is a strict leaf node representing a continuous, time-series, or **structured event stream** I/O endpoint (`ChannelSpec`), attachable directly under `Body`, `OU`, `Interface`, `Api`, `Endpoint`, or `Component`:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `mediaType` | `MediaType` | Yes | MIME or domain payload type (e.g., `"video/h264"`, `"audio/opus"`, `"application/x-lidar"`, `"application/x-joints"`). |
-| `direction` | `"sense" \| "act" \| "duplex"` | Yes | Agent-centric polarity: `"sense"` (environment → agent), `"act"` (agent → environment), or `"duplex"` (bidirectional closed-loop). |
-| `deliveryMode` | `"stream" \| "stream+seek"` | Yes | `"stream"` for live continuous flows; `"stream+seek"` for buffered, recorded, or replayable time-series streams supporting seek/sampling. |
-| `streamRef` | `StreamRef` | No | Data-Plane stream descriptor opened via `channel.open` or sampled via `channel.sample`. |
+| `mediaType` | `MediaType` | Yes | MIME or domain payload type (e.g., `"video/h264"`, `"audio/opus"`, `"application/x-lidar"`, `"application/aep+event"`, `"application/cloudevents+json"`). |
+| `direction` | `"sense" \| "act" \| "duplex"` | Yes | Agent-centric polarity: `"sense"` (environment -> agent), `"act"` (agent -> environment), or `"duplex"` (bidirectional closed-loop). |
+| `deliveryMode` | `"stream" \| "stream+seek"` | Yes | `"stream"` for live continuous flows; `"stream+seek"` for buffered, recorded, or replayable streams supporting seek/sampling. |
+| `payloadMode` | `"binary" \| "event"` | No | Defaults to `"binary"`. `"binary"` carries opaque byte/media frames in `data`; `"event"` carries structured `ChannelEvent` objects natively in `event`. |
+| `eventSchema` | `SchemaObject` | No | Optional JSON Schema validating `ChannelEvent.payload` when `payloadMode = "event"`. |
+| `streamRef` | `StreamRef` | No | Data-Plane stream descriptor opened via `channel.open` or sampled via `channel.sample` (supports `SeekUnit = "events"` for event logs). |
+
+#### Structured Plain Event Streams (`payloadMode = "event"`)
+
+When a `Channel` projects structured domain events, telemetry records, webhook streams, or audit feeds rather than raw audio/video/text byte streams, servers SHOULD set `payloadMode = "event"` and `mediaType = "application/aep+event"` (or a structured JSON/CloudEvents MIME type):
+
+- Each event frame transmitted in `channel.chunk`, `channel.send`, or `channel.sample` carries a **`ChannelEvent`** object in the `event` field instead of `data`:
+  - `name` (`Name`, optional): Semantic event type (e.g., `"invoice.paid"`, `"build.completed"`).
+  - `id` (`string`, optional): Producer-assigned event/cursor ID for deduplication or replay.
+  - `payload` (`Value`, required): Structured JSON/Protobuf value conforming to `ChannelSpec.eventSchema` when declared.
+  - `headers` (`Record<string, Value>`, optional): Auxiliary per-event metadata (e.g., correlation ID, partition key).
+- `"binary"` frames carry `data` and MUST NOT carry `event`; `"event"` frames carry `event` and MUST NOT carry `data`. Violations fail with `PAYLOAD_MODE_MISMATCH`.
+- Replayable event streams (`deliveryMode = "stream+seek"`) MAY use `SeekSpec.unit = "events"` to seek or sample by event index.
 
 Channel configuration parameters (such as encoding hints, MTU, or rate limits), live status, and platform annotations live in the node's uniform `properties`, `state`, and `meta` maps.
 
-> **Why `Channel` Owns Streams**: Discrete UI primitives (`view`, `editable`, `control`) never duplicate streaming state machines. Any continuous video feed, microphone capture, depth/LiDAR stream, robot motor command loop, or seekable media track is uniformly modeled as a `Channel`—whether owned globally on an `OU`, locally on an `Interface`, or encapsulated inside a `Component` and linked to a `ViewElement` via `state.channelRef`.
+> **Why `Channel` Owns Streams**: Discrete UI and API primitives (`view`, `editable`, `control`, `endpoint`) never duplicate streaming state machines. Any continuous video feed, microphone capture, depth/LiDAR stream, robot motor command loop, seekable media track, or plain structured event stream is uniformly modeled as a `Channel`—whether owned globally on an `OU` or `Api`, scoped to an `Interface` or `Endpoint`, or encapsulated inside a `Component` and linked to a `ViewElement` via `state.channelRef`.
 
 ---
 
@@ -270,12 +331,47 @@ Whenever a node's `state` or a method response references binary payloads or con
   - `frameRate` (`NonNegNumber`, optional): Nominal frames per second for visual/sensor streams.
   - `sampleRate` (`NonNegNumber`, optional): Nominal sample rate in Hz for audio or telemetry.
   - `channelCount` (`PositiveInteger`, optional): Audio or multi-axis channel count.
-  - `seek` (`SeekSpec`, optional): Seekability metadata (`{ seekable, unit?, durationMs?, startOffset?, endOffset? }`) where `unit` is `"ms" | "seconds" | "frames" | "bytes" | "samples"`.
+  - `seek` (`SeekSpec`, optional): Seekability metadata (`{ seekable, unit?, durationMs?, startOffset?, endOffset? }`) where `unit` is `"ms" | "seconds" | "frames" | "bytes" | "samples" | "events"`.
   - `meta` (`Meta*`, optional): Codec or transport negotiation hints.
 
 ---
 
-## 6. Node & Reference Model Diagram
+## 6. Multi-Tier Surface Rendering (`renderMinimal`, `renderExpress`, `renderFull`)
+
+Autonomous agents frequently need spatial or structural grounding of a visual `Interface` or `Element` subtree without incurring the bandwidth, token cost, or GPU overhead of full native composited screenshots. AEP standardizes three **`RenderMode`** tiers usable via server-side `data.render` (and `data.getBinary` capture mode selection) as well as deterministic **client-side synthesis** for `renderMinimal`:
+
+| `RenderMode` | Target Fidelity | Where Executed | Primary Purpose |
+| --- | --- | --- | --- |
+| `"renderMinimal"` | Schematic wireframe: boxes, role badges, labels, values, placeholders, optional path markers | **Client-side** (from AEP tree) **or Server-side** (`data.render`) | Ultra-low-token, zero-GPU spatial/UI grounding for AI agents without requiring real pixel rendering. |
+| `"renderExpress"` | Lightweight native layout: true typography, basic colors, borders, primary icons; skips shaders, shadows, blurs, live video frames, high-res textures | **Server-side** (`data.render` / `data.getBinary`) | Fast server-assisted visual inspection when visual styling matters but full compositing is too expensive. |
+| `"renderFull"` | Native pixel-accurate raster capture of the composited surface | **Server-side** (`data.render` / `data.getBinary`) | Pixel-exact verification, OCR on un-projected canvases, or visual aesthetics inspection. |
+
+Non-visual nodes (`OU`, `Api`, `Endpoint`, `Channel`) have no spatial surface and MUST be rejected with `INVALID_PARAMS` if targeted directly by `data.render`.
+
+### 6.1 Normative Client-Side `renderMinimal` Synthesizer
+
+Because every AEP `Interface` and `Element` already projects `kind`, `type`, `properties` (`bounds`, `title`, `label`, `placeholder`, `orientation`, `rows`/`columns`, `altText`, `disabled`, `readonly`, `required`), and `state` (`value`, `focused`, `valid`, `expanded`, `selected`, `channelRef`), an AEP client MAY synthesize a `renderMinimal` representation **completely locally** with zero Data-Plane pixel transfer:
+
+1. **Geometry Resolution**:
+   - If a node provides `properties.bounds`, place its bounding box at `(x, y, width, height)` in the requested `coordSpace` (scaled to `maxWidth` / `maxHeight` if specified).
+   - If `properties.bounds` is omitted, compute deterministic auto-layout boxes top-down: vertical stacking for `interface`, `form`, `section`, `document`, and `stack` (`orientation != "horizontal"`); horizontal flow for `stack` (`orientation = "horizontal"`); uniform tracks for `grid` (`properties.columns` / `properties.rows`) and `table` (`column` / `row` / `cell`).
+2. **Semantic Primitive Drawing Rules**:
+   - `interface` / `structure` (`form`, `section`, `table`): Outer frame with header strip displaying `properties.title` (or `node.id`) and `type`.
+   - `view`:
+     - Textual (`text`, `span`, `label`, `badge`, `code`): Render `state.value` (truncated gracefully to fit box) or `properties.label`.
+     - Media (`image`, `icon`, `videoSurface`, `canvas`): Render a crossed placeholder box labeled `[IMAGE: <altText|id>]`, `[VIDEO: <channelRef|altText|id>]`, or `[CANVAS: <altText|id>]`.
+   - `editable`: Render input border, `properties.label`, and current `state.value` (or `properties.placeholder` dimmed). If `type = "passwordField"`, MUST mask `state.value` as `"••••"` and MUST NOT render raw secret characters. Highlight `state.focused = true` and `state.valid = false` states distinctly.
+   - `control`: Render an interactive pill/button box containing `properties.label` (or `node.id`); gray out when `properties.disabled = true`.
+3. **Path Callout Annotations (`annotatePaths`)**:
+   - When `annotatePaths = true`, assign sequential short markers (`"#1"`, `"#2"`, ...) to interactive/annotated nodes (`editable`, `control`, `component`, `view` with `channelRef`/`binaryRef`, nested `interface`) and return a `pathMap` mapping each marker (`"#1"`) to its canonical AEP `Path`.
+4. **Standard Output Formats**:
+   - `"image/svg+xml"` *(recommended default)*: Lightweight vector schematic with crisp text and semantic `data-aep-path` attributes.
+   - `"image/png"`: Rasterized wireframe for vision-only multimodal models.
+   - `"text/x-aep-layout"`: Compact ASCII/Unicode box-and-marker diagram for text-only LLM contexts.
+
+---
+
+## 7. Node & Reference Model Diagram
 
 ```mermaid
 classDiagram
@@ -286,8 +382,10 @@ classDiagram
 
     class NodeHeader {
         +string id
+        +string uid
         +NodeKind kind
         +string type
+        +int revision
         +PropertyMap properties
         +State state
         +MethodDecl[] methods
@@ -303,12 +401,27 @@ classDiagram
         +Record fields
     }
 
+    class ElevationSpec {
+        +ElevationLevel level
+        +string[] scopes
+        +AllowedFactor[] allowedFactors
+        +boolean requireReason
+    }
+
     class OU {
         +OUChild[] children
     }
 
     class Interface {
         +InterfaceChild[] children
+    }
+
+    class Api {
+        +ApiChild[] children
+    }
+
+    class Endpoint {
+        +EndpointChild[] children
     }
 
     class StructureElement {
@@ -339,6 +452,8 @@ classDiagram
         +string mediaType
         +Direction direction
         +DeliveryMode deliveryMode
+        +PayloadMode payloadMode
+        +SchemaObject eventSchema
         +StreamRef streamRef
     }
 
@@ -359,6 +474,8 @@ classDiagram
 
     NodeHeader <|-- OU
     NodeHeader <|-- Interface
+    NodeHeader <|-- Api
+    NodeHeader <|-- Endpoint
     NodeHeader <|-- StructureElement
     NodeHeader <|-- ComponentElement
     NodeHeader <|-- DocumentElement
@@ -367,9 +484,12 @@ classDiagram
     NodeHeader <|-- ControlElement
     NodeHeader <|-- Channel
     NodeHeader "0..1" *-- "0..1" State
+    NodeHeader "0..1" *-- "0..1" ElevationSpec
     State "0..1" *-- "0..1" BinaryRef
     Root "1" *-- "0..*" OU
     Root "1" *-- "0..*" Interface
+    Root "1" *-- "0..*" Api
     Root "1" *-- "0..*" Channel
+    Api "1" *-- "0..*" Endpoint
     Channel "0..1" *-- "0..1" StreamRef
 ```

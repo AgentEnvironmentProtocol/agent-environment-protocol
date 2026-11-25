@@ -1,8 +1,8 @@
 # 06 — Profiles, Sessions & Vocabularies
 
-This document defines capability negotiation, standard conformance profiles (`aep-core-static` and `aep-core-streaming`), multi-user session roles and concurrency policies, security modes, and optional open domain vocabularies (`aep.desktop.*`, `aep.web.*`, `aep.robotics.*`).
+This document defines capability negotiation, standard conformance profiles (`aep-core-static` and `aep-core-streaming`), multi-user session roles and concurrency policies, security modes, and optional open domain vocabularies (`aep.desktop.*`, `aep.web.*`, `aep.robotics.*`, `aep.api.*`).
 
-Related documents: [00 — Overview](./00-overview.md) | [01 — Formal Grammar](./01-formal-grammar.md) | [02 — Tree Nodes & Data Model](./02-tree-nodes.md) | [03 — Passthrough & Composition](./03-passthrough-and-composition.md) | [04 — Control & Data Planes](./04-control-and-data-planes.md) | [05 — Transport & Interoperability](./05-transport-and-interop.md) | [07 — Scenarios & Examples](./07-scenarios-and-examples.md)
+Related documents: [00 — Overview](./00-overview.md) | [01 — Formal Grammar](./01-formal-grammar.md) | [02 — Tree Nodes & Data Model](./02-tree-nodes.md) | [03 — Passthrough & Composition](./03-passthrough-and-composition.md) | [04 — Control & Data Planes](./04-control-and-data-planes.md) | [05 — Transport & Interoperability](./05-transport-and-interop.md) | [07 — Scenarios & Examples](./07-scenarios-and-examples.md) | [08 — Security, Authentication & Privilege Elevation](./08-security-and-elevation.md) | [09 — Configuration & Passthrough Mount Manifests](./09-configuration.md)
 
 ---
 
@@ -13,15 +13,18 @@ Implementations MAY support a well-defined partial subset of AEP—such as non-s
 | Capability Field | Type / Values | Semantics |
 | --- | --- | --- |
 | `profile` | `string` (optional) | Named conformance profile (e.g., `"aep-core-static"`, `"aep-core-streaming"`). |
-| `nodeKinds` | Subset of `ou`, `interface`, `channel`, `structure`, `component`, `document`, `view`, `editable`, `control` | Allowed `NodeKind`s in `Body`. |
+| `nodeKinds` | Subset of `ou`, `interface`, `api`, `endpoint`, `channel`, `structure`, `component`, `document`, `view`, `editable`, `control` | Allowed `NodeKind`s in `Body`. |
 | `channelDirections` | Subset of `sense`, `act`, `duplex` | Allowed `ChannelSpec.direction` polarities. |
 | `deliveryModes` | Subset of `stream`, `stream+seek` | Allowed `ChannelSpec.deliveryMode` values. |
+| `channelPayloadModes` | Subset of `binary`, `event` | Allowed `ChannelSpec.payloadMode` values (defaults to `["binary"]` if omitted). |
 | `queries` | `{ treeQuery?: boolean, loadChildren?: boolean }` | Support for `tree.query` and lazy `node.loadChildren`. |
 | `passthrough` | `{ enabled: boolean, maxDepth?: number }` | Support for transparent AEP-to-AEP subtree mounting. |
-| `sessions` | `{ policy?: "single-controller" \| "multi-controller" \| "isolated", allowObserverStreams?: boolean }` | Multi-user role policy and observer stream fan-out behavior. |
+| `sessions` | `{ policy?: "single-controller" \| "multi-controller" \| "isolated", allowObserverStreams?: boolean, leases?: boolean, optimisticConcurrency?: boolean }` | Multi-user role policy, observer stream fan-out, cooperative subtree leases (`session.acquireLease`), and `expectedRevision` checks. |
+| `resumption` | `{ enabled: boolean, replayWindowEvents?: number, sessionTtlMs?: number }` | Support for `session.resume`, outbound `seq` watermarks, and buffered stream replay across load-balanced reconnects. |
 | `dataPlane` | `{ binaryReferences: boolean, streamReferences: boolean, seek: boolean, sample: boolean }` | Active Data-Plane operations (`data.getBinary`, `channel.open`, `channel.seek`, `channel.sample`). |
-| `security` | `{ mode: string, reserved?: boolean }` | Active security mode declared for the session. |
-| `vocabularies` | `string[]` (optional) | Optional semantic vocabulary namespaces used in `Body` (e.g., `["aep.desktop", "aep.web", "aep.robotics"]`). |
+| `rendering` | `{ serverModes?: RenderMode[], formats?: string[], pathAnnotations?: boolean }` | Server-supported `data.render` modes (`"renderMinimal"`, `"renderExpress"`, `"renderFull"`), output MIME types, and `annotatePaths` support. |
+| `security` | `{ mode: AuthMode, supportedModes?: AuthMode[], elevation?: boolean, reserved?: boolean }` | Active security mode, supported authentication mechanisms, and privilege elevation support. |
+| `vocabularies` | `string[]` (optional) | Optional semantic vocabulary namespaces used in `Body` (e.g., `["aep.desktop", "aep.web", "aep.robotics", "aep.api"]`). |
 
 ### Normative Conformance Rules
 
@@ -35,19 +38,20 @@ Implementations MAY support a well-defined partial subset of AEP—such as non-s
 
 ### 2.1 `aep-core-static`
 
-The **`aep-core-static`** profile targets lightweight request/response and event-driven environments (such as static/dynamic desktop or web UI projection) without continuous `Channel` streams:
+The **`aep-core-static`** profile targets lightweight request/response and event-driven environments (such as static/dynamic desktop, web UI, or discrete headless `Api` projection) without continuous `Channel` streams:
 
-- **Enabled `NodeKind`s**: `ou`, `interface`, `structure`, `component`, `document`, `view`, `editable`, `control` (`channel` is disabled).
-- **Data Plane**: Discrete `BinaryRef` resolution via `data.getBinary` (including parameterized `region` crops and opt-in `properties.capture` snapshots). `channel.*` stream operations fail with `UNSUPPORTED_CAPABILITY`.
-- **Passthrough**: Enabled for `ou`, `interface`, `structure`, `component`, `document`, `view`, `editable`, and `control` subtrees.
-- **Security**: Supports `security.mode = "unauthenticated"` for local/development sessions.
+- **Enabled `NodeKind`s**: `ou`, `interface`, `api`, `endpoint`, `structure`, `component`, `document`, `view`, `editable`, `control` (`channel` is disabled).
+- **Data Plane**: Discrete `BinaryRef` resolution via `data.getBinary` (including parameterized `region` crops and opt-in `properties.capture` snapshots) and optional `data.render` modes. `channel.*` stream operations fail with `UNSUPPORTED_CAPABILITY`.
+- **Passthrough**: Enabled for `ou`, `interface`, `api`, `endpoint`, `structure`, `component`, `document`, `view`, `editable`, and `control` subtrees.
+- **Security**: Supports `security.mode = "unauthenticated"` for local/development sessions alongside production `AuthMode`s.
 
 ```json
 {
   "profile": "aep-core-static",
-  "nodeKinds": ["ou", "interface", "structure", "component", "document", "view", "editable", "control"],
+  "nodeKinds": ["ou", "interface", "api", "endpoint", "structure", "component", "document", "view", "editable", "control"],
   "channelDirections": [],
   "deliveryModes": [],
+  "channelPayloadModes": [],
   "queries": {
     "treeQuery": true,
     "loadChildren": true
@@ -61,8 +65,15 @@ The **`aep-core-static`** profile targets lightweight request/response and event
     "seek": false,
     "sample": false
   },
+  "rendering": {
+    "serverModes": ["renderMinimal", "renderFull"],
+    "formats": ["image/svg+xml", "image/png"],
+    "pathAnnotations": true
+  },
   "security": {
     "mode": "unauthenticated",
+    "supportedModes": ["unauthenticated"],
+    "elevation": false,
     "reserved": true
   }
 }
@@ -70,14 +81,15 @@ The **`aep-core-static`** profile targets lightweight request/response and event
 
 ### 2.2 `aep-core-streaming`
 
-The **`aep-core-streaming`** profile enables the full AEP tree including continuous sensory and actuation `Channel`s (on `Body`, `OU`, `Interface`, or `ComponentElement`), time-series `stream+seek`, random sampling, and multi-user observer fan-out:
+The **`aep-core-streaming`** profile enables the full AEP tree including continuous sensory, actuation, and structured event `Channel`s (on `Body`, `OU`, `Interface`, `Api`, `Endpoint`, or `ComponentElement`), time-series `stream+seek`, random sampling, multi-tier server rendering, privilege elevation, and multi-user observer fan-out:
 
 ```json
 {
   "profile": "aep-core-streaming",
-  "nodeKinds": ["ou", "interface", "channel", "structure", "component", "document", "view", "editable", "control"],
+  "nodeKinds": ["ou", "interface", "api", "endpoint", "channel", "structure", "component", "document", "view", "editable", "control"],
   "channelDirections": ["sense", "act", "duplex"],
   "deliveryModes": ["stream", "stream+seek"],
+  "channelPayloadModes": ["binary", "event"],
   "queries": {
     "treeQuery": true,
     "loadChildren": true
@@ -87,7 +99,14 @@ The **`aep-core-streaming`** profile enables the full AEP tree including continu
   },
   "sessions": {
     "policy": "single-controller",
-    "allowObserverStreams": true
+    "allowObserverStreams": true,
+    "leases": true,
+    "optimisticConcurrency": true
+  },
+  "resumption": {
+    "enabled": true,
+    "replayWindowEvents": 1000,
+    "sessionTtlMs": 300000
   },
   "dataPlane": {
     "binaryReferences": true,
@@ -95,9 +114,15 @@ The **`aep-core-streaming`** profile enables the full AEP tree including continu
     "seek": true,
     "sample": true
   },
+  "rendering": {
+    "serverModes": ["renderMinimal", "renderExpress", "renderFull"],
+    "formats": ["image/svg+xml", "image/png", "text/x-aep-layout"],
+    "pathAnnotations": true
+  },
   "security": {
-    "mode": "unauthenticated",
-    "reserved": true
+    "mode": "bearer",
+    "supportedModes": ["mtls", "os-peer", "bearer", "api-key", "challenge-response"],
+    "elevation": true
   }
 }
 ```
@@ -121,35 +146,44 @@ Servers advertise one of three concurrency policies in `aep.capabilities.session
 
 > **Shared Capture Fan-Out**: Servers SHOULD fan out shared `"sense"` `Channel` capture loops (such as desktop screen streams, cameras, microphones, or sensor telemetry) across all subscribed `controller` and `observer` sessions rather than duplicating hardware/OS capture per viewer.
 
+### 3.1 Multi-Agent Collaboration, System 1 / System 2 Harnesses & Concurrency Guards
+
+AEP's decoupled Control Plane and multiplexed Data Plane support both single-session dual-speed harnesses and multi-agent collaboration in one shared environment:
+
+- **Dual-Speed ("System 1 / System 2") Processing**: Because `Channel` streams (`payloadMode = "binary"` or `"event"`) and `node.event` notifications flow asynchronously without blocking RPCs, an agent harness can route low-latency **System 1** reflex loops directly over `sense`/`act`/`duplex` channels while **System 2** planning loops perform `tree.query`, `data.render` (`renderMinimal`), and `node.invoke` concurrently.
+- **Cooperative Subtree Leases (`session.acquireLease` / `session.releaseLease`)**: Under `multi-controller` policies, agents working across different subtrees or channels can claim an `"exclusive-write"` lease on a target subtree `Path` (or `uid`). Competing write attempts by other sessions fail cleanly with `LEASE_CONFLICT`, while read inspection and `"sense"` streams remain open to all authorized peers.
+- **Optimistic Concurrency (`revision` / `expectedRevision`)**: When a fine-grained lock is unnecessary, callers MAY pass `expectedRevision` on `node.invoke` so stale writes fail cleanly with `REVISION_CONFLICT`.
+- **Relocation & Failover Continuity**: When dynamic backend scaling moves a node (`node.moved`), callers holding a stable `uid` (with `followMoves = true`) or open `subscriptionId` survive path relocation and load-balancer failover via `session.resume` without interrupting active agents.
+
 ---
 
 ## 4. Security Modes
 
-Production AEP deployments rely on transport-level encryption and verifiable peer authentication as defined in [05 — Transport & Interoperability](./05-transport-and-interop.md).
+Production AEP deployments rely on transport-level encryption (`TLS 1.3`, `DTLS-SRTP`, or OS-isolated local IPC) paired with application-layer authentication and privilege elevation as normatively specified in [08 — Security, Authentication & Privilege Elevation](./08-security-and-elevation.md):
 
-To support local development, trusted in-memory tests, and incremental bring-up:
-
-- Peers MAY negotiate `security: { "mode": "unauthenticated", "reserved": true }` during `session.initialize` (reflected in `Head["aep.security"]`).
-- In `"unauthenticated"` mode, identity verification and fine-grained authorization are explicitly inactive for the session.
-- Servers MUST reject any unrecognized or disallowed `security.mode` value during `session.initialize` with error code `UNSUPPORTED_AUTH_MODE`.
+- Standardized `AuthMode` values are `"unauthenticated"`, `"mtls"`, `"os-peer"`, `"bearer"`, `"api-key"`, and `"challenge-response"`.
+- Peers MAY negotiate `security: { "mode": "unauthenticated", "reserved": true }` for local development, trusted in-memory tests, and loopback bring-up.
+- Servers MUST reject any unrecognized or disallowed `security.mode` value during `session.initialize` or `session.authenticate` with error code `UNSUPPORTED_AUTH_MODE`.
 
 ---
 
 ## 5. Core Built-In Types & Optional Domain Vocabularies
 
-### 5.1 Core Built-In UI Types (Normative)
+### 5.1 Core Built-In Types (Normative)
 
-Single-segment un-namespaced `TypeTag`s are reserved by Core AEP so every client and agent understands standard surfaces, layouts, document blocks, and primitives without needing domain-specific extensions:
+Single-segment un-namespaced `TypeTag`s are reserved by Core AEP so every client and agent understands standard surfaces, headless APIs, layouts, document blocks, and primitives without needing domain-specific extensions:
 
 | `NodeKind` | Reserved Built-In `TypeTag`s |
 | --- | --- |
 | `interface` | `display`, `window`, `dialog`, `page` |
+| `api` | `service`, `rest`, `rpc`, `graphql`, `webhook`, `toolset` |
+| `endpoint` | `resource`, `collection`, `operation`, `streamEndpoint`, `webhookEndpoint` |
 | `structure` | `form`, `section`, `stack`, `grid`, `table`, `column`, `row`, `cell`, `paragraph`, `heading`, `list`, `listItem`, `blockquote`, `codeBlock` |
 | `view` | `text`, `span`, `label`, `badge`, `code`, `image`, `icon`, `videoSurface`, `audioOutput`, `canvas`, `progress` |
 | `editable` | `textField`, `textArea`, `numberField`, `passwordField`, `searchField`, `checkbox`, `switch`, `toggleButton`, `radioGroup`, `radio`, `select`, `comboBox`, `slider`, `rangeSlider`, `dateField`, `colorField`, `voiceInput` |
 | `control` | `button`, `iconButton`, `menuItem`, `link`, `command`, `toolbarButton` |
 
-> **Open Domain Conventions**: The domain vocabularies below (`aep.desktop.*`, `aep.web.*`, `aep.robotics.*`) are optional namespaced conventions built on `TypeTag` (`node.type`), `properties`, `state`, and `meta`. Core AEP implementations handle all valid `NamespacedIdent` `TypeTag`s uniformly.
+> **Open Domain Conventions**: The domain vocabularies below (`aep.desktop.*`, `aep.web.*`, `aep.robotics.*`, `aep.api.*`) are optional namespaced conventions built on `TypeTag` (`node.type`), `properties`, `state`, and `meta`. Core AEP implementations handle all valid `NamespacedIdent` `TypeTag`s uniformly.
 
 ### 5.2 Desktop Vocabulary (`aep.desktop.*`)
 
@@ -194,3 +228,17 @@ Models physical and simulated robotic platforms as a unified body of sensory and
   - `robotics.frameId`: Coordinate transform frame in `node.meta` (e.g., `"base_link"`, `"head_left_optical"`).
   - `robotics.rateHz`: Nominal sensor/control loop frequency in `node.meta` or `node.properties`.
   - `robotics.estop` (`MethodDecl` with `sideEffects: "write"`): Standard emergency-stop method attached to top-level `robotics.body` or subsystem `OU`s, and optionally triggered via a `control` `button`.
+
+### 5.5 Service & Cloud API Vocabulary (`aep.api.*`)
+
+Models headless cloud services, REST/RPC gateways, tool providers, and webhook/event buses projected via `Api` and `Endpoint` nodes without coupling Core AEP to HTTP:
+
+- **Common `TypeTag`s** (used alongside Core `Api`/`Endpoint` types `service`, `rest`, `rpc`, `graphql`, `webhook`, `toolset`, `resource`, `collection`, `operation`, `streamEndpoint`, `webhookEndpoint`):
+  - `Api`: `api.openapi`, `api.grpc`, `api.mcpBridge`, `api.eventBus`
+  - `Endpoint`: `api.queryEndpoint`, `api.mutationEndpoint`, `api.subscriptionEndpoint`
+- **Metadata & Property Conventions (`meta` / `properties`)**:
+  - `api.basePath`: Upstream base route prefix for bridged HTTP/REST services in `node.meta`.
+  - `api.routeTemplate`: Underlying route template (e.g., `"/v1/invoices/{id}"`) in `node.meta`.
+  - `api.httpMethod`: Originating HTTP verb (`"GET"`, `"POST"`, `"PATCH"`, `"DELETE"`) on bridged `MethodDecl.meta`.
+  - `api.contentType`: Expected upstream payload media type (e.g., `"application/json"`).
+  - `api.idempotent`: Boolean hint on `MethodDecl.meta` indicating safe retry semantics.

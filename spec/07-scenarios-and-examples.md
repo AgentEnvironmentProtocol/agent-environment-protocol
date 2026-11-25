@@ -1,8 +1,8 @@
 # 07 — Scenarios & Examples
 
-This document walks through four end-to-end scenarios illustrating how the **Agent Environment Protocol (AEP)** formal grammar, XAML-inspired node object model (`properties`, `state`, `methods`, `events`), composite `Component`s, rich `Document`s, transparent passthrough mounting, Control/Data Plane operations, and session roles behave in practice.
+This document walks through six end-to-end scenarios illustrating how the **Agent Environment Protocol (AEP)** formal grammar, XAML-inspired node object model (`properties`, `state`, `methods`, `events`), composite `Component`s, rich `Document`s, headless `Api`/`Endpoint` trees, structured event `Channel`s, multi-tier rendering (`renderMinimal`/`renderExpress`/`renderFull`), transparent passthrough mounting, Control/Data Plane operations, security elevation, and many-to-many load-balanced multi-agent resilience behave in practice.
 
-Related documents: [01 — Formal Grammar](./01-formal-grammar.md) | [02 — Tree Nodes & Data Model](./02-tree-nodes.md) | [03 — Passthrough & Composition](./03-passthrough-and-composition.md) | [04 — Control & Data Planes](./04-control-and-data-planes.md) | [06 — Profiles, Sessions & Vocabularies](./06-profiles-sessions-and-vocabularies.md)
+Related documents: [01 — Formal Grammar](./01-formal-grammar.md) | [02 — Tree Nodes & Data Model](./02-tree-nodes.md) | [03 — Passthrough & Composition](./03-passthrough-and-composition.md) | [04 — Control & Data Planes](./04-control-and-data-planes.md) | [06 — Profiles, Sessions & Vocabularies](./06-profiles-sessions-and-vocabularies.md) | [08 — Security, Authentication & Privilege Elevation](./08-security-and-elevation.md) | [09 — Configuration & Passthrough Mount Manifests](./09-configuration.md)
 
 ---
 
@@ -235,4 +235,136 @@ sequenceDiagram
     Agent->>Host: node.invoke (path="/training-win/main-split/module-guide/check-form/submit", method="invoke")
     Host-->>Agent: Result ({submitted: true, status: "recorded"})
     Host-->>Agent: node.updated (path="/training-win/main-split/module-guide/check-form", state={valid:true, dirty:false})
+```
+
+---
+
+## Scenario 5 — Headless Billing `Api`, Structured Event `Channel`, `renderMinimal` Grounding & Step-Up Elevation
+
+**Goal**: An autonomous agent connects over QUIC (`TLS 1.3`, `bearer` auth) to a workstation aggregator that mounts an admin `Interface` alongside a headless `Api` (`billing`) via `token-exchange`. The agent obtains a low-token `renderMinimal` wireframe with `annotatePaths` for the admin window, inspects and invokes a headless `Endpoint`, responds to an `ELEVATION_REQUIRED` challenge via `session.elevate`, subscribes to a plain structured event stream (`payloadMode = "event"`), and drops its elevated grant immediately afterward.
+
+### Projected AEP Tree
+
+```text
+Root
+ ├── head:
+ │    ├── aep.protocolVersion: "1.0.0-draft"
+ │    ├── aep.profiles: ["aep-core-streaming"]
+ │    ├── aep.vocabularies: ["aep.desktop", "aep.api"]
+ │    └── aep.security: {mode: "bearer", principal: {id: "agent-ops-1"}, sessionAuthenticated: true}
+ └── body
+      ├── interface#ops-console [type="window", properties={title:"Ops Console", capture:{binary:true, modes:["renderMinimal","renderExpress","renderFull"]}}]
+      │    └── structure#toolbar [type="stack", properties={orientation:"horizontal"}]
+      │         ├── editable#filter [type="searchField", properties={label:"Invoice Filter"}, state={value:"inv-42"}, methods=[setValue]]
+      │         └── control#refresh [type="button", properties={label:"Refresh"}, methods=[invoke]]
+      └── ou#services
+           └── api#billing [type="rest", properties={title:"Billing Service", version:"2026-10-01"}, state={status:"healthy"}]
+                ├── channel#ledger-events [mediaType="application/aep+event", direction="sense", deliveryMode="stream+seek", payloadMode="event", streamRef={refId:"evt-ledger", seek:{seekable:true, unit:"events"}}]
+                └── endpoint#invoices [type="collection", hasChildren=true, methods=[list, create]]
+                     └── endpoint#inv-42 [type="resource", state={value:{id:"inv-42", amountUsd:250, status:"paid"}}, methods=[get, refund (elevation={level:"elevated", allowedFactors:["human-approval"], requireReason:true})]]
+```
+
+### Interaction Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Agent as Agent Client
+    participant Host as Aggregator Host (QUIC + TLS 1.3)
+    participant Billing as Mounted Billing Api
+    participant Human as Human Operator
+
+    Agent->>Host: session.initialize (security={mode:"bearer", token:"jwt-ops"})
+    Host-->>Agent: Result (sessionId="sess-12", head, role="controller")
+
+    Agent->>Host: data.render (path="/ops-console", mode="renderMinimal", params={format:"image/svg+xml", annotatePaths:true})
+    Host-->>Agent: SVG wireframe + pathMap={"#1":"/ops-console/toolbar/filter", "#2":"/ops-console/toolbar/refresh"}
+
+    Agent->>Host: channel.open (path="/services/billing/ledger-events")
+    Host->>Billing: channel.open (path="/ledger-events")
+    Billing-->>Host: subscriptionId="sub-evt", payloadMode="event"
+    Host-->>Agent: subscriptionId="sub-evt", payloadMode="event"
+
+    Agent->>Host: node.invoke (path="/services/billing/invoices/inv-42", method="refund", params={amountUsd:250})
+    Host->>Billing: Token exchange + node.invoke (path="/invoices/inv-42", method="refund")
+    Billing-->>Host: Error (ELEVATION_REQUIRED, challengeId="chg-42", level="elevated")
+    Host-->>Agent: ErrorResponse (ELEVATION_REQUIRED, targetPath="/services/billing/invoices/inv-42", instructions="Approve USD 250 refund for inv-42")
+
+    Note over Agent,Human: Agent surfaces targetPath and instructions to Human Operator
+    Agent->>Host: session.elevate (challengeId="chg-42", targetPath="/services/billing/invoices/inv-42", level="elevated", singleUse=true, reason="Refund requested by user for inv-42", factor={type:"human-approval"})
+    Host-->>Agent: Result (grantId="gr-42", status="pending")
+    Human-->>Host: Approves chg-42
+    Host-->>Agent: session.elevationUpdated (grantId="gr-42", status="granted")
+
+    Agent->>Host: node.invoke (path="/services/billing/invoices/inv-42", method="refund", params={amountUsd:250}, grantId="gr-42")
+    Host->>Billing: node.invoke (path="/invoices/inv-42", method="refund", grantId="gr-42")
+    Billing-->>Host: Result ({refundId:"ref-88", status:"succeeded"})
+    Host-->>Agent: Result ({refundId:"ref-88", status:"succeeded"})
+
+    Billing-->>Host: channel.chunk (subscriptionId="sub-evt", event={name:"invoice.refunded", id:"ev-901", payload:{invoiceId:"inv-42", amountUsd:250}})
+    Host-->>Agent: channel.chunk (subscriptionId="sub-evt", event={name:"invoice.refunded", id:"ev-901", payload:{invoiceId:"inv-42", amountUsd:250}})
+
+    Agent->>Host: session.dropElevation (grantId="gr-42")
+    Host-->>Agent: Result ({dropped:["gr-42"]})
+```
+
+---
+
+## Scenario 6 — Multi-Agent (System 1 + System 2) Cloud Console Behind a Load-Balanced Passthrough Gateway
+
+**Goal**: Two concurrent `multi-controller` agent sessions—a fast **System 1** telemetry/reflex agent (`sess-s1`) and a deliberative **System 2** deployment planner (`sess-s2`)—operate simultaneously against a distributed cloud console behind a load-balanced passthrough gateway. System 2 acquires an exclusive lease on `/aws/us-east-1/ecs/cluster-prod`, a backend shard rebalance relocates an endpoint from `/aws/us-east-1/ecs/cluster-prod/svc-web` to `/aws/us-west-2/ecs/cluster-prod/svc-web` (`node.moved`) without breaking System 1's active event `subscriptionId`, and System 2 survives a gateway replica swap seamlessly using `session.resume`.
+
+### Projected AEP Tree
+
+```text
+Root
+ ├── head:
+ │    ├── aep.protocolVersion: "1.0.0-draft"
+ │    ├── aep.profiles: ["aep-core-streaming"]
+ │    └── aep.capabilities.sessions: {policy: "multi-controller", leases: true, optimisticConcurrency: true}
+ └── body
+      └── ou#aws [uid="aws-root", type="cloud.provider"]
+           └── ou#us-east-1 [uid="reg-east-1", type="cloud.region"]
+                ├── channel#cloudwatch-events [uid="cw-stream", mediaType="application/aep+event", direction="sense", deliveryMode="stream+seek", payloadMode="event"]
+                └── api#ecs [uid="ecs-api", type="rest"]
+                     └── endpoint#cluster-prod [uid="ecs-cluster-prod", type="collection", revision=14]
+                          └── endpoint#svc-web [uid="ecs-svc-web", type="resource", revision=7, methods=[scale, deploy]]
+```
+
+### Interaction Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S1 as System 1 Agent (sess-s1)
+    participant S2 as System 2 Agent (sess-s2)
+    participant GW1 as Gateway Replica A
+    participant GW2 as Gateway Replica B
+    participant Cloud as Backend Pool (ECS Shards)
+
+    S1->>GW1: session.initialize (role="controller")
+    GW1-->>S1: Result (sessionId="sess-s1", resumeToken="rt-s1")
+    S1->>GW1: channel.open (path="/aws/us-east-1/cloudwatch-events")
+    GW1-->>S1: subscriptionId="sub-cw", payloadMode="event"
+
+    S2->>GW1: session.initialize (role="controller")
+    GW1-->>S2: Result (sessionId="sess-s2", resumeToken="rt-s2")
+    S2->>GW1: session.acquireLease (path="/aws/us-east-1/ecs/cluster-prod", mode="exclusive-write", durationMs=60000, holderName="planner-s2")
+    GW1-->>S2: Result (leaseId="lease-9")
+    GW1-->>S1: session.leaseUpdated (path="/aws/us-east-1/ecs/cluster-prod", status="acquired", seq=12)
+
+    Note over Cloud,GW1: Backend shard rebalances svc-web to us-west-2 while streaming continues
+    Cloud-->>GW1: node.moved (fromPath="/ecs/cluster-prod/svc-web", toPath="/us-west-2/ecs/cluster-prod/svc-web", uid="ecs-svc-web")
+    GW1-->>S1: node.moved (fromPath="/aws/us-east-1/ecs/cluster-prod/svc-web", toPath="/aws/us-west-2/ecs/cluster-prod/svc-web", uid="m:aws:ecs-svc-web", seq=13)
+    GW1-->>S2: node.moved (fromPath="/aws/us-east-1/ecs/cluster-prod/svc-web", toPath="/aws/us-west-2/ecs/cluster-prod/svc-web", uid="m:aws:ecs-svc-web", seq=13)
+    GW1-->>S1: channel.chunk (subscriptionId="sub-cw", event={name:"ecs.rebalanced", payload:{uid:"m:aws:ecs-svc-web"}})
+
+    Note over S2,GW2: Load balancer drops GW1 connection; S2 reconnects to GW2
+    S2->>GW2: session.resume (sessionId="sess-s2", resumeToken="rt-s2", lastControlSeq=12)
+    GW2-->>S2: Result (resumed=true, currentControlSeq=13, replayedCount=1)
+
+    S2->>GW2: node.invoke (uid="m:aws:ecs-svc-web", followMoves=true, method="scale", params={desiredCount:6}, expectedRevision=7, leaseId="lease-9")
+    GW2->>Cloud: Route to relocated shard + verify revision & lease
+    Cloud-->>GW2: Result (revision=8, status="scaling")
+    GW2-->>S2: Result (resolvedPath="/aws/us-west-2/ecs/cluster-prod/svc-web", revision=8)
 ```
